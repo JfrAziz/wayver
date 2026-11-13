@@ -1,0 +1,184 @@
+package dev.wayver.app
+
+import android.os.Bundle
+import android.widget.Toast
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
+import dev.wayver.app.container.ContainerConfig
+import dev.wayver.app.container.ContainerManager
+import dev.wayver.app.container.ContainerStore
+import dev.wayver.app.container.DriverConfig
+import dev.wayver.app.core.AppPrefs
+import dev.wayver.app.distro.Distro
+import dev.wayver.app.distro.DistroRegistry
+import dev.wayver.app.distro.RootfsManager
+import dev.wayver.app.driver.DriverManager
+import dev.wayver.app.ui.LauncherScreen
+import dev.wayver.app.ui.LauncherUiState
+import dev.wayver.app.ui.ThemeMode
+import java.io.File
+import kotlin.concurrent.thread
+
+class MainActivity : AppCompatActivity() {
+    private lateinit var containerStore: ContainerStore
+    private lateinit var rootfsManager: RootfsManager
+    private lateinit var driverManager: DriverManager
+    private lateinit var appPrefs: AppPrefs
+    private val uiState = LauncherUiState()
+
+    private var pendingImportDistro: Distro? = null
+
+    private val sessionListener: () -> Unit = {
+        runOnUiThread { refreshState() }
+    }
+
+    private val pickImageTarball =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            val target = pendingImportDistro ?: return@registerForActivityResult
+            if (uri == null) return@registerForActivityResult
+            toast("Caching ${target.name} image...")
+            thread(name = "import-image-${target.id}") {
+                val ok =
+                    runCatching {
+                        contentResolver.openInputStream(uri)?.use { stream ->
+                            rootfsManager.importImage(target, stream)
+                        } ?: false
+                    }.getOrDefault(false)
+                runOnUiThread {
+                    toast(if (ok) "Cached ${target.name} image" else "Image import failed for ${target.name}")
+                    refreshState()
+                }
+            }
+        }
+
+    private val pickDriverZip =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri == null) return@registerForActivityResult
+            contentResolver.openInputStream(uri)?.use { stream ->
+                driverManager.importZip(stream, "imported_driver").onSuccess { drv ->
+                    uiState.importedDriverPath = drv.libraryPath
+                    toast("Imported driver: ${drv.name}")
+                }.onFailure { err ->
+                    toast("Driver import failed: ${err.message}")
+                }
+            }
+        }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        containerStore = ContainerStore(this)
+        rootfsManager = RootfsManager(this)
+        driverManager = DriverManager(filesDir)
+        appPrefs = AppPrefs(this)
+        uiState.themeMode = ThemeMode.fromId(appPrefs.themeMode)
+        uiState.importedDriverPath = findExistingImportedDriver()
+
+        setContent {
+            LauncherScreen(
+                state = uiState,
+                onCycleThemeMode = {
+                    val next = uiState.themeMode.next()
+                    uiState.themeMode = next
+                    appPrefs.themeMode = next.id
+                },
+                onLaunchContainer = ::launchContainer,
+                onStopContainer = { container ->
+                    ContainerManager.stopContainer(container.id)
+                    refreshState()
+                },
+                onSaveContainer = { updated ->
+                    val withId = if (updated.id.isEmpty()) updated.copy(id = containerStore.newId()) else updated
+                    containerStore.upsert(withId)
+                    refreshState()
+                },
+                onDeleteContainer = { container ->
+                    ContainerManager.stopContainer(container.id)
+                    rootfsManager.deleteContainer(container.id)
+                    containerStore.delete(container.id)
+                    refreshState()
+                },
+                onDownloadImage = ::startImageDownload,
+                onImportImage = { distro ->
+                    pendingImportDistro = distro
+                    pickImageTarball.launch(
+                        arrayOf("application/gzip", "application/x-gzip", "application/x-tar", "*/*")
+                    )
+                },
+                onImportDriver = {
+                    pickDriverZip.launch(arrayOf("application/zip", "*/*"))
+                }
+            )
+        }
+
+        ContainerManager.addListener(sessionListener)
+        refreshState()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshState()
+    }
+
+    override fun onDestroy() {
+        ContainerManager.removeListener(sessionListener)
+        super.onDestroy()
+    }
+
+    private fun refreshState() {
+        val all = containerStore.getAll()
+        uiState.containers = all
+        uiState.runningIds = ContainerManager.runningIds()
+        uiState.installedContainers =
+            all.filter {
+                rootfsManager.isContainerInstalled(it.id, DistroRegistry.byId(it.distroId))
+            }.map { it.id }.toSet()
+        uiState.cachedDistros =
+            DistroRegistry.all.filter {
+                rootfsManager.imageFile(it).exists()
+            }.map { it.id }.toSet()
+    }
+
+    private fun launchContainer(container: ContainerConfig) {
+        val distro = DistroRegistry.byId(container.distroId)
+        val canBoot = rootfsManager.isContainerInstalled(container.id, distro) || rootfsManager.hasImage(distro)
+        if (!canBoot) {
+            toast("Download or import a ${distro.name} image first")
+            return
+        }
+        val drv = container.driver
+        if (drv is DriverConfig.Imported && drv.driverPath == null && uiState.importedDriverPath != null) {
+            containerStore.upsert(container.copy(driver = DriverConfig.Imported(uiState.importedDriverPath)))
+        }
+        startActivity(DisplayActivity.createIntent(this, container.id))
+    }
+
+    private fun startImageDownload(distro: Distro) {
+        if (uiState.downloadProgress.containsKey(distro.id)) return
+        uiState.downloadProgress[distro.id] = "Starting..."
+        thread(name = "dl-${distro.id}") {
+            val ok =
+                runCatching {
+                    rootfsManager.downloadImage(distro) { msg ->
+                        runOnUiThread { uiState.downloadProgress[distro.id] = msg }
+                    }
+                }.getOrDefault(false)
+            runOnUiThread {
+                uiState.downloadProgress.remove(distro.id)
+                toast(if (ok) "Downloaded ${distro.name} image" else "Download failed for ${distro.name}")
+                refreshState()
+            }
+        }
+    }
+
+    private fun findExistingImportedDriver(): String? {
+        val dir = File(filesDir, "drivers/imported_driver")
+        if (!dir.exists()) return null
+        return dir.walkTopDown().firstOrNull { it.isFile && it.extension == "so" }?.absolutePath
+    }
+
+    private fun toast(msg: String) {
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    }
+}
