@@ -1,0 +1,19 @@
+* {
+  font-family: "DejaVu Sans", sans-serif;
+  font-size: 12px;
+  color: #cdd6f4;
+}
+window#waybar {
+  background: rgba(24, 24, 37, 0.92);
+  border-top: 1px solid #313244;
+}
+#custom-term, #custom-files, #taskbar button, #memory, #clock {
+  background: #1e1e2e;
+  border-radius: 6px;
+  margin: 4px 2px;
+  padding: 2px 10px;
+}
+#taskbar button.active, #taskbar button.active label {
+  background: #89b4fa;
+  color: #11111b;
+}

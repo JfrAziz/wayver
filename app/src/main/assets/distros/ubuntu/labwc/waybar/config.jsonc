@@ -1,0 +1,31 @@
+{
+  "layer": "top",
+  "position": "bottom",
+  "height": 38,
+  "spacing": 6,
+  "modules-left": ["custom/term", "custom/files"],
+  "modules-center": ["wlr/taskbar"],
+  "modules-right": ["memory", "clock"],
+  "custom/term": {
+    "format": " >_ Term ",
+    "on-click": "foot",
+    "tooltip": false
+  },
+  "custom/files": {
+    "format": " Files ",
+    "on-click": "pcmanfm",
+    "tooltip": false
+  },
+  "wlr/taskbar": {
+    "format": "{icon} {title:.18}",
+    "icon-size": 18,
+    "on-click": "activate",
+    "on-click-middle": "close"
+  },
+  "memory": {
+    "format": "RAM {used:0.1f}G"
+  },
+  "clock": {
+    "format": "{:%H:%M}"
+  }
+}

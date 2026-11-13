@@ -1,0 +1,4 @@
+(sleep 1; swaybg -m fill -i /root/.config/labwc/wallpaper.jpg 2>&1 | sed 's/^/[swaybg] /') &
+(sleep 1; waybar 2>&1 | sed 's/^/[waybar] /') &
+foot &
+pcmanfm &
