@@ -1,0 +1,18 @@
+# Build outputs
+build/
+app/build/
+.cxx/
+*.apk
+*.ap_
+*.aab
+*.dex
+
+# Gradle & IDE
+.gradle/
+.idea/
+*.iml
+local.properties
+.DS_Store
+
+# Generated docs (keep local only, never commit)
+*.md
