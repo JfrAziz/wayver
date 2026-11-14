@@ -51,7 +51,7 @@ struct UploadImage {
 
 struct SwapchainState {
     swapchain: vk::SwapchainKHR,
-    _format: vk::Format,
+    format: vk::Format,
     extent: vk::Extent2D,
     images: Vec<vk::Image>,
 }
@@ -182,6 +182,19 @@ impl VkPresenter {
                 min_images = caps.max_image_count;
             }
 
+            // Prefer MAILBOX for tear-free low-latency presentation, falling back to FIFO_RELAXED then FIFO.
+            let present_modes = vk
+                .surface_loader
+                .get_physical_device_surface_present_modes(vk.phys_device, surface)
+                .unwrap_or_default();
+            let present_mode = if present_modes.contains(&vk::PresentModeKHR::MAILBOX) {
+                vk::PresentModeKHR::MAILBOX
+            } else if present_modes.contains(&vk::PresentModeKHR::FIFO_RELAXED) {
+                vk::PresentModeKHR::FIFO_RELAXED
+            } else {
+                vk::PresentModeKHR::FIFO
+            };
+
             let swci = vk::SwapchainCreateInfoKHR::default()
                 .surface(surface)
                 .min_image_count(min_images)
@@ -195,7 +208,7 @@ impl VkPresenter {
                 .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
                 .pre_transform(vk::SurfaceTransformFlagsKHR::IDENTITY)
                 .composite_alpha(vk::CompositeAlphaFlagsKHR::INHERIT)
-                .present_mode(vk::PresentModeKHR::FIFO)
+                .present_mode(present_mode)
                 .clipped(true);
 
             let swapchain = match vk.swapchain_loader.create_swapchain(&swci, None) {
@@ -213,16 +226,17 @@ impl VkPresenter {
             images.truncate(MAX_SWAPCHAIN_IMAGES);
 
             info!(
-                "Swapchain ready: {}x{} ({} images, fmt={:?})",
+                "Swapchain ready: {}x{} ({} images, fmt={:?}, mode={:?})",
                 extent.width,
                 extent.height,
                 images.len(),
-                chosen.format
+                chosen.format,
+                present_mode
             );
 
             vk.swapchain = Some(SwapchainState {
                 swapchain,
-                _format: chosen.format,
+                format: chosen.format,
                 extent,
                 images,
             });
@@ -451,6 +465,7 @@ impl VkPresenter {
             };
 
             let swap_img = sw.images[img_idx as usize];
+            let swap_fmt = sw.format;
             let extent = sw.extent;
             let upload_img = vk.upload_img.as_ref().unwrap().img;
             let staging_buf = staging.buf;
@@ -545,49 +560,79 @@ impl VkPresenter {
                 &[upload_to_src],
             );
 
-            let blit = vk::ImageBlit::default()
-                .src_subresource(vk::ImageSubresourceLayers {
-                    aspect_mask: vk::ImageAspectFlags::COLOR,
-                    mip_level: 0,
-                    base_array_layer: 0,
-                    layer_count: 1,
-                })
-                .src_offsets([
-                    vk::Offset3D { x: 0, y: 0, z: 0 },
-                    vk::Offset3D {
-                        x: width as i32,
-                        y: height as i32,
-                        z: 1,
-                    },
-                ])
-                .dst_subresource(vk::ImageSubresourceLayers {
-                    aspect_mask: vk::ImageAspectFlags::COLOR,
-                    mip_level: 0,
-                    base_array_layer: 0,
-                    layer_count: 1,
-                })
-                .dst_offsets([
-                    vk::Offset3D { x: 0, y: 0, z: 0 },
-                    vk::Offset3D {
-                        x: extent.width as i32,
-                        y: extent.height as i32,
-                        z: 1,
-                    },
-                ]);
-            let filter = if width == extent.width && height == extent.height {
-                vk::Filter::NEAREST
+            // Use hardware vkCmdCopyImage for 1:1 same-format frames to avoid blit/filter overhead.
+            if width == extent.width && height == extent.height && src_fmt == swap_fmt {
+                let copy_region = vk::ImageCopy::default()
+                    .src_subresource(vk::ImageSubresourceLayers {
+                        aspect_mask: vk::ImageAspectFlags::COLOR,
+                        mip_level: 0,
+                        base_array_layer: 0,
+                        layer_count: 1,
+                    })
+                    .dst_subresource(vk::ImageSubresourceLayers {
+                        aspect_mask: vk::ImageAspectFlags::COLOR,
+                        mip_level: 0,
+                        base_array_layer: 0,
+                        layer_count: 1,
+                    })
+                    .extent(vk::Extent3D {
+                        width,
+                        height,
+                        depth: 1,
+                    });
+                vk.device.cmd_copy_image(
+                    cmd_buf,
+                    upload_img,
+                    vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                    swap_img,
+                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                    &[copy_region],
+                );
             } else {
-                vk::Filter::LINEAR
-            };
-            vk.device.cmd_blit_image(
-                cmd_buf,
-                upload_img,
-                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-                swap_img,
-                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                &[blit],
-                filter,
-            );
+                let blit = vk::ImageBlit::default()
+                    .src_subresource(vk::ImageSubresourceLayers {
+                        aspect_mask: vk::ImageAspectFlags::COLOR,
+                        mip_level: 0,
+                        base_array_layer: 0,
+                        layer_count: 1,
+                    })
+                    .src_offsets([
+                        vk::Offset3D { x: 0, y: 0, z: 0 },
+                        vk::Offset3D {
+                            x: width as i32,
+                            y: height as i32,
+                            z: 1,
+                        },
+                    ])
+                    .dst_subresource(vk::ImageSubresourceLayers {
+                        aspect_mask: vk::ImageAspectFlags::COLOR,
+                        mip_level: 0,
+                        base_array_layer: 0,
+                        layer_count: 1,
+                    })
+                    .dst_offsets([
+                        vk::Offset3D { x: 0, y: 0, z: 0 },
+                        vk::Offset3D {
+                            x: extent.width as i32,
+                            y: extent.height as i32,
+                            z: 1,
+                        },
+                    ]);
+                let filter = if width == extent.width && height == extent.height {
+                    vk::Filter::NEAREST
+                } else {
+                    vk::Filter::LINEAR
+                };
+                vk.device.cmd_blit_image(
+                    cmd_buf,
+                    upload_img,
+                    vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                    swap_img,
+                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                    &[blit],
+                    filter,
+                );
+            }
 
             let to_present = image_barrier(
                 swap_img,
