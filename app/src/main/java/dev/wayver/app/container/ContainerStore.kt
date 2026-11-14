@@ -65,8 +65,7 @@ class ContainerStore(context: Context) {
         name = "Alpine + LabWC",
         distroId = appPrefs.activeDistroId,
         desktopId = "labwc",
-        resolution = ResolutionConfig.Preset(ResolutionPreset.NATIVE),
-        driver = DriverConfig.System
+        resolution = ResolutionConfig.Preset(ResolutionPreset.NATIVE)
     )
 
     private fun toJson(c: ContainerConfig): JSONObject = JSONObject().apply {
@@ -84,14 +83,6 @@ class ContainerStore(context: Context) {
                 put("resolutionType", "custom")
                 put("customWidth", res.width)
                 put("customHeight", res.height)
-            }
-        }
-        when (val drv = c.driver) {
-            is DriverConfig.System -> put("driverType", "system")
-            is DriverConfig.BundledTurnip -> put("driverType", "turnip")
-            is DriverConfig.Imported -> {
-                put("driverType", "imported")
-                if (drv.driverPath != null) put("driverPath", drv.driverPath)
             }
         }
         put(
@@ -134,23 +125,6 @@ class ContainerStore(context: Context) {
                     ResolutionConfig.Preset(
                         ResolutionPreset.fromId(o.optString("resolutionPreset", ResolutionPreset.NATIVE.id))
                     )
-            }
-        val driver =
-            when (o.optString("driverType", "system")) {
-                "turnip" -> DriverConfig.BundledTurnip
-                "imported" ->
-                    DriverConfig.Imported(
-                        driverPath =
-                        if (o.has("driverPath") && !o.isNull("driverPath")) {
-                            o.optString(
-                                "driverPath"
-                            )
-                        } else {
-                            null
-                        }
-                    )
-
-                else -> DriverConfig.System
             }
         val envObj = o.optJSONObject("env")
         val disabledPresets =
@@ -202,7 +176,6 @@ class ContainerStore(context: Context) {
             distroId = o.optString("distroId", "alpine"),
             desktopId = o.optString("desktopId", "labwc"),
             resolution = resolution,
-            driver = driver,
             env = EnvConfig(disabledPresets = disabledPresets, presetEdits = presetEdits, overrides = overrides)
         )
     }

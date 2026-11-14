@@ -409,7 +409,6 @@ dependencies = [
  "ash",
  "jni",
  "libc",
- "libloading",
  "log",
  "ndk-sys",
  "wayland-protocols",

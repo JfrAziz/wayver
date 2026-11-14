@@ -56,24 +56,6 @@ sealed interface ResolutionConfig {
 }
 
 /**
- * Discriminated union for container Vulkan driver selection.
- * Only [Imported] carries a `driverPath` — [System] and [BundledTurnip] carry no unused fields.
- */
-sealed interface DriverConfig {
-    data object System : DriverConfig
-
-    data object BundledTurnip : DriverConfig
-
-    data class Imported(val driverPath: String?) : DriverConfig
-
-    fun label(): String = when (this) {
-        is System -> "System Vulkan"
-        is BundledTurnip -> "Bundled Maleoon-Turnip (Experimental)"
-        is Imported -> "Imported Driver (.zip)"
-    }
-}
-
-/**
  * Per-container environment configuration layered on top of distro defaults:
  * distro base env -> enabled verified app presets -> user overrides.
  */
@@ -102,6 +84,5 @@ data class ContainerConfig(
     val distroId: String,
     val desktopId: String = "labwc",
     val env: EnvConfig = EnvConfig(),
-    val driver: DriverConfig = DriverConfig.System,
     val resolution: ResolutionConfig = ResolutionConfig.Preset(ResolutionPreset.NATIVE)
 )

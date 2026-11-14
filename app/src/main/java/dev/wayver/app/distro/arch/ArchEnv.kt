@@ -19,6 +19,6 @@ object ArchEnv {
                     "MOZ_DISABLE_RDD_SANDBOX" to "1",
                     "MOZ_DISABLE_SOCKET_PROCESS_SANDBOX" to "1",
                     "MOZ_DISABLE_UTILITY_SANDBOX" to "1"
-                ),
+                )
         )
 }

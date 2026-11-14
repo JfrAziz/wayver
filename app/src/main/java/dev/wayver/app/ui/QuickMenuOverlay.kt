@@ -379,7 +379,7 @@ private fun OverviewTab(
                         fontSize = 12.sp
                     )
                     Text(
-                        text = "${container.resolution.label()} • ${container.driver.label()}",
+                        text = container.resolution.label(),
                         color = AppColors.TextMuted,
                         fontSize = 11.sp
                     )

@@ -25,7 +25,5 @@ object NativeBridge {
 
     external fun nativeOnKey(handle: Long, evdevKey: Int, pressed: Boolean, mods: Int)
 
-    external fun nativeRunSelfTest(runtimeDir: String, w: Int, h: Int): Boolean
-
-    external fun nativeReloadDriver(handle: Long, driverPath: String?, w: Int, h: Int): String
+    external fun nativeSetRefreshRate(handle: Long, hz: Float)
 }

@@ -21,20 +21,17 @@ import androidx.compose.ui.platform.ComposeView
 import dev.wayver.app.container.ContainerConfig
 import dev.wayver.app.container.ContainerManager
 import dev.wayver.app.container.ContainerStore
-import dev.wayver.app.container.DriverConfig
 import dev.wayver.app.core.AppPrefs
 import dev.wayver.app.core.NativeBridge
 import dev.wayver.app.distro.Distro
 import dev.wayver.app.distro.DistroRegistry
 import dev.wayver.app.distro.ProotRunner
 import dev.wayver.app.distro.RootfsManager
-import dev.wayver.app.driver.DriverManager
 import dev.wayver.app.input.KeyMapper
 import dev.wayver.app.ui.QuickMenuOverlay
 import dev.wayver.app.ui.QuickMenuState
 import dev.wayver.app.ui.ThemeMode
 import dev.wayver.app.utils.ContainerLogger
-import java.io.File
 
 class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
     companion object {
@@ -52,7 +49,6 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private lateinit var runtimeDirPath: String
     private lateinit var containerStore: ContainerStore
     private lateinit var containerConfig: ContainerConfig
-    private lateinit var driverManager: DriverManager
     private lateinit var rootfsManager: RootfsManager
     private lateinit var prootRunner: ProotRunner
     private val quickMenuState = QuickMenuState()
@@ -77,12 +73,12 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
             ContainerLogger("LinuxDesktop") { line ->
                 runOnUiThread { quickMenuState.appendLog(line) }
             }
-        driverManager = DriverManager(filesDir)
         rootfsManager = RootfsManager(this, logger)
         prootRunner = ProotRunner(this, rootfsManager, containerConfig.id, logger)
 
         runtimeDirPath = prootRunner.xdgRuntimeDir.absolutePath
         sessionHandle = NativeBridge.nativeCreateSession()
+        NativeBridge.nativeSetRefreshRate(sessionHandle, displayRefreshRateHz())
         NativeBridge.nativeInitRuntime(sessionHandle, runtimeDirPath)
         ContainerManager.register(containerConfig.id, this, prootRunner)
 
@@ -222,22 +218,6 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
         )
     }
 
-    private fun loadBundledTurnip() {
-        runCatching {
-            assets.open("Maleoon-Turnip-Display-v0.2.0.zip").use { stream ->
-                driverManager.importZip(stream, "maleoon_turnip").getOrThrow()
-            }
-        }.onSuccess { drv ->
-            NativeBridge.nativeReloadDriver(sessionHandle, drv.libraryPath, surfaceW, surfaceH)
-            NativeBridge.nativeInitRuntime(sessionHandle, runtimeDirPath)
-            quickMenuState.appendLog("Loaded bundled driver: ${drv.name} (${drv.format})")
-            quickMenuState.nativeStatus = NativeBridge.nativeGetStatus(sessionHandle)
-        }.onFailure { err ->
-            quickMenuState.appendLog("Bundled driver failed: ${err.message}")
-            quickMenuState.nativeStatus = NativeBridge.nativeGetStatus(sessionHandle)
-        }
-    }
-
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) enterFullscreen()
@@ -326,25 +306,20 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
         if (!sessionStarted) {
             sessionStarted = true
-            when (val drv = containerConfig.driver) {
-                is DriverConfig.BundledTurnip -> loadBundledTurnip()
-                is DriverConfig.Imported -> {
-                    val path = drv.driverPath
-                    if (!path.isNullOrBlank() && File(path).exists()) {
-                        NativeBridge.nativeReloadDriver(sessionHandle, path, width, height)
-                        NativeBridge.nativeInitRuntime(sessionHandle, runtimeDirPath)
-                        quickMenuState.appendLog("Loaded container driver: $path")
-                    } else {
-                        quickMenuState.appendLog("Imported driver not found, using System Vulkan")
-                    }
-                }
-
-                is DriverConfig.System -> Unit
-            }
-
             quickMenuState.nativeStatus = NativeBridge.nativeGetStatus(sessionHandle)
             bootDesktop(containerConfig.desktopId)
         }
+    }
+
+    private fun displayRefreshRateHz(): Float {
+        val hz =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                display?.refreshRate
+            } else {
+                @Suppress("DEPRECATION")
+                windowManager.defaultDisplay?.refreshRate
+            }
+        return (hz ?: 60f).coerceIn(30f, 240f)
     }
 
     private fun nativeDisplaySize(): Pair<Int, Int> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {

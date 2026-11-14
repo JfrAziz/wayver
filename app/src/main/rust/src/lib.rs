@@ -1,18 +1,15 @@
-mod aaudio_sink;
-mod pulse_audio;
-mod vk_loader;
+mod audio;
 mod vk_presenter;
-mod wl_selftest;
 mod wl_server;
 
 use std::sync::{Arc, Once};
 
 use jni::objects::{JClass, JObject, JString};
-use jni::sys::{jboolean, jfloat, jint, jlong, jstring, JNI_FALSE, JNI_TRUE};
+use jni::sys::{jboolean, jfloat, jint, jlong, jstring, JNI_TRUE};
 use jni::JNIEnv;
 use log::info;
 
-use crate::pulse_audio::PulseAudioServer;
+use crate::audio::PulseAudioServer;
 use crate::vk_presenter::VkPresenter;
 use crate::wl_server::WlCompositorServer;
 
@@ -33,6 +30,7 @@ struct NativeSession {
     presenter: Option<Arc<VkPresenter>>,
     server: Option<WlCompositorServer>,
     audio: Option<PulseAudioServer>,
+    refresh_rate_hz: f32,
 }
 
 impl NativeSession {
@@ -40,7 +38,8 @@ impl NativeSession {
         if let Some(p) = &self.presenter {
             Arc::clone(p)
         } else {
-            let p = Arc::new(VkPresenter::new(None));
+            let p = Arc::new(VkPresenter::new());
+            p.set_refresh_rate(self.refresh_rate_hz);
             self.presenter = Some(Arc::clone(&p));
             p
         }
@@ -84,6 +83,7 @@ pub extern "system" fn Java_dev_wayver_app_core_NativeBridge_nativeCreateSession
         presenter: None,
         server: None,
         audio: None,
+        refresh_rate_hz: 60.0,
     });
     Box::into_raw(session) as jlong
 }
@@ -247,62 +247,17 @@ pub extern "system" fn Java_dev_wayver_app_core_NativeBridge_nativeOnKey(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_dev_wayver_app_core_NativeBridge_nativeRunSelfTest(
-    mut env: JNIEnv,
-    _thiz: JClass,
-    runtime_dir: JString,
-    w: jint,
-    h: jint,
-) -> jboolean {
-    init_logger();
-    let ok = if !runtime_dir.is_null() {
-        env.get_string(&runtime_dir)
-            .map(|d| wl_selftest::send_frame(&d.to_string_lossy(), w, h))
-            .unwrap_or(false)
-    } else {
-        false
-    };
-    if ok {
-        JNI_TRUE
-    } else {
-        JNI_FALSE
-    }
-}
-
-#[no_mangle]
-pub extern "system" fn Java_dev_wayver_app_core_NativeBridge_nativeReloadDriver(
-    mut env: JNIEnv,
+pub extern "system" fn Java_dev_wayver_app_core_NativeBridge_nativeSetRefreshRate(
+    _env: JNIEnv,
     _thiz: JClass,
     handle: jlong,
-    driver_path: JString,
-    w: jint,
-    h: jint,
-) -> jstring {
+    hz: jfloat,
+) {
     let Some(s) = (unsafe { from_handle(handle) }) else {
-        return env
-            .new_string("No session")
-            .map(|s| s.into_raw())
-            .unwrap_or(std::ptr::null_mut());
+        return;
     };
-
-    let path_opt = if !driver_path.is_null() {
-        env.get_string(&driver_path)
-            .ok()
-            .map(|p| p.to_string_lossy().into_owned())
-    } else {
-        None
-    };
-
-    s.server.take();
-    s.presenter.take();
-    let presenter = Arc::new(VkPresenter::new(path_opt.as_deref()));
-    s.presenter = Some(Arc::clone(&presenter));
-
-    if !s.window.is_null() && w > 0 && h > 0 && presenter.set_window(s.window, w, h) {
-        presenter.draw_clear(0.118, 0.161, 0.231, 1.0);
+    s.refresh_rate_hz = hz;
+    if let Some(p) = &s.presenter {
+        p.set_refresh_rate(hz);
     }
-
-    env.new_string(presenter.get_info())
-        .map(|s| s.into_raw())
-        .unwrap_or(std::ptr::null_mut())
 }

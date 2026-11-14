@@ -26,15 +26,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.BrightnessAuto
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
@@ -72,13 +71,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.wayver.app.container.ContainerConfig
-import dev.wayver.app.container.DriverConfig
 import dev.wayver.app.container.EnvConfig
 import dev.wayver.app.container.ResolutionConfig
 import dev.wayver.app.container.ResolutionPreset
 import dev.wayver.app.distro.Distro
 import dev.wayver.app.distro.DistroRegistry
-import java.io.File
 
 class LauncherUiState {
     var containers by mutableStateOf<List<ContainerConfig>>(emptyList())
@@ -86,7 +83,6 @@ class LauncherUiState {
     var installedContainers by mutableStateOf<Set<String>>(emptySet())
     var cachedDistros by mutableStateOf<Set<String>>(emptySet())
     val downloadProgress = mutableStateMapOf<String, String>()
-    var importedDriverPath by mutableStateOf<String?>(null)
     var editingContainer by mutableStateOf<ContainerConfig?>(null)
     var showCreateDialog by mutableStateOf(false)
     var themeMode by mutableStateOf(ThemeMode.AUTO)
@@ -101,8 +97,7 @@ fun LauncherScreen(
     onSaveContainer: (ContainerConfig) -> Unit,
     onDeleteContainer: (ContainerConfig) -> Unit,
     onDownloadImage: (Distro) -> Unit,
-    onImportImage: (Distro) -> Unit,
-    onImportDriver: () -> Unit
+    onImportImage: (Distro) -> Unit
 ) {
     LinuxDesktopTheme(themeMode = state.themeMode) {
         Scaffold(
@@ -213,61 +208,12 @@ fun LauncherScreen(
                         )
                     }
                 }
-
-                // Vulkan Drivers Section
-                SectionHeader("VULKAN DRIVERS", "Default: System Vulkan")
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    color = AppColors.Surface,
-                    border = BorderStroke(1.dp, AppColors.Border)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Imported Custom Driver",
-                                color = AppColors.TextPrimary,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text =
-                                state.importedDriverPath?.let { File(it).name }
-                                    ?: "No .zip driver imported yet",
-                                color = AppColors.TextMuted,
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        OutlinedButton(
-                            onClick = onImportDriver,
-                            shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, AppColors.BorderBright)
-                        ) {
-                            Icon(
-                                Icons.Rounded.FolderOpen,
-                                null,
-                                modifier = Modifier.size(16.dp),
-                                tint = AppColors.TextPrimary
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Import .zip", color = AppColors.TextPrimary, fontSize = 12.sp)
-                        }
-                    }
-                }
             }
         }
 
         if (state.showCreateDialog) {
             ContainerEditorDialog(
                 existing = state.editingContainer,
-                importedDriverPath = state.importedDriverPath,
                 onDismiss = { state.showCreateDialog = false },
                 onSave = { updated ->
                     state.showCreateDialog = false
@@ -390,7 +336,7 @@ private fun ContainerCard(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "${container.resolution.label()} • ${container.driver.label()}",
+                        text = container.resolution.label(),
                         color = AppColors.TextMuted,
                         fontSize = 10.sp,
                         maxLines = 1,
@@ -588,7 +534,6 @@ private fun StatusBadge(label: String, color: Color) {
 @Composable
 private fun ContainerEditorDialog(
     existing: ContainerConfig?,
-    importedDriverPath: String?,
     onDismiss: () -> Unit,
     onSave: (ContainerConfig) -> Unit
 ) {
@@ -614,15 +559,6 @@ private fun ContainerEditorDialog(
     var customW by remember { mutableStateOf((initialCustom?.width ?: 1600).toString()) }
     var customH by remember { mutableStateOf((initialCustom?.height ?: 1000).toString()) }
 
-    var selectedDriverType by remember {
-        mutableIntStateOf(
-            when (existing?.driver) {
-                is DriverConfig.BundledTurnip -> 1
-                is DriverConfig.Imported -> 2
-                else -> 0
-            }
-        )
-    }
     var disabledPresets by remember { mutableStateOf(existing?.env?.disabledPresets ?: emptySet()) }
     var presetEdits by remember { mutableStateOf(existing?.env?.presetEdits ?: emptyMap()) }
     var expandedPreset by remember { mutableStateOf<String?>(null) }
@@ -765,7 +701,7 @@ private fun ContainerEditorDialog(
                         if (showAdvanced) {
                             Icons.Rounded.KeyboardArrowDown
                         } else {
-                            Icons.Rounded.KeyboardArrowRight
+                            Icons.AutoMirrored.Rounded.KeyboardArrowRight
                         },
                         contentDescription = null,
                         tint = AppColors.TextMuted,
@@ -781,26 +717,6 @@ private fun ContainerEditorDialog(
                 }
 
                 if (showAdvanced) {
-                    Text(
-                        text = "Vulkan Driver",
-                        color = AppColors.TextMuted,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf(
-                            "System Vulkan",
-                            "Bundled Turnip",
-                            "Imported (.zip)"
-                        ).forEachIndexed { idx, label ->
-                            FilterChip(
-                                selected = selectedDriverType == idx,
-                                onClick = { selectedDriverType = idx },
-                                label = { Text(label, fontSize = 12.sp) }
-                            )
-                        }
-                    }
-
                     if (chosenDistro.appEnvs.isNotEmpty()) {
                         Text(
                             text = "App Env Presets",
@@ -905,16 +821,6 @@ private fun ContainerEditorDialog(
                         } else {
                             ResolutionConfig.Preset(selectedPreset)
                         }
-                    val driver =
-                        when (selectedDriverType) {
-                            1 -> DriverConfig.BundledTurnip
-                            2 ->
-                                DriverConfig.Imported(
-                                    (existing?.driver as? DriverConfig.Imported)?.driverPath ?: importedDriverPath
-                                )
-
-                            else -> DriverConfig.System
-                        }
                     val finalName =
                         name.trim().ifEmpty {
                             "${chosenDistro.name} + ${chosenDistro.desktopById(selectedDesktopId).name}"
@@ -926,7 +832,6 @@ private fun ContainerEditorDialog(
                             distroId = chosenDistro.id,
                             desktopId = selectedDesktopId,
                             resolution = resolution,
-                            driver = driver,
                             env =
                             EnvConfig(
                                 disabledPresets = disabledPresets,
@@ -1009,7 +914,7 @@ private fun AppEnvPresetCard(
                     if (isExpanded) {
                         Icons.Rounded.KeyboardArrowDown
                     } else {
-                        Icons.Rounded.KeyboardArrowRight
+                        Icons.AutoMirrored.Rounded.KeyboardArrowRight
                     },
                     contentDescription = if (isExpanded) "Collapse $app" else "Expand $app",
                     tint = AppColors.TextMuted,

@@ -8,22 +8,18 @@ import androidx.appcompat.app.AppCompatActivity
 import dev.wayver.app.container.ContainerConfig
 import dev.wayver.app.container.ContainerManager
 import dev.wayver.app.container.ContainerStore
-import dev.wayver.app.container.DriverConfig
 import dev.wayver.app.core.AppPrefs
 import dev.wayver.app.distro.Distro
 import dev.wayver.app.distro.DistroRegistry
 import dev.wayver.app.distro.RootfsManager
-import dev.wayver.app.driver.DriverManager
 import dev.wayver.app.ui.LauncherScreen
 import dev.wayver.app.ui.LauncherUiState
 import dev.wayver.app.ui.ThemeMode
-import java.io.File
 import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
     private lateinit var containerStore: ContainerStore
     private lateinit var rootfsManager: RootfsManager
-    private lateinit var driverManager: DriverManager
     private lateinit var appPrefs: AppPrefs
     private val uiState = LauncherUiState()
 
@@ -52,28 +48,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-    private val pickDriverZip =
-        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-            if (uri == null) return@registerForActivityResult
-            contentResolver.openInputStream(uri)?.use { stream ->
-                driverManager.importZip(stream, "imported_driver").onSuccess { drv ->
-                    uiState.importedDriverPath = drv.libraryPath
-                    toast("Imported driver: ${drv.name}")
-                }.onFailure { err ->
-                    toast("Driver import failed: ${err.message}")
-                }
-            }
-        }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         containerStore = ContainerStore(this)
         rootfsManager = RootfsManager(this)
-        driverManager = DriverManager(filesDir)
         appPrefs = AppPrefs(this)
         uiState.themeMode = ThemeMode.fromId(appPrefs.themeMode)
-        uiState.importedDriverPath = findExistingImportedDriver()
 
         setContent {
             LauncherScreen(
@@ -105,9 +86,6 @@ class MainActivity : AppCompatActivity() {
                     pickImageTarball.launch(
                         arrayOf("application/gzip", "application/x-gzip", "application/x-tar", "*/*")
                     )
-                },
-                onImportDriver = {
-                    pickDriverZip.launch(arrayOf("application/zip", "*/*"))
                 }
             )
         }
@@ -147,10 +125,6 @@ class MainActivity : AppCompatActivity() {
             toast("Download or import a ${distro.name} image first")
             return
         }
-        val drv = container.driver
-        if (drv is DriverConfig.Imported && drv.driverPath == null && uiState.importedDriverPath != null) {
-            containerStore.upsert(container.copy(driver = DriverConfig.Imported(uiState.importedDriverPath)))
-        }
         startActivity(DisplayActivity.createIntent(this, container.id))
     }
 
@@ -170,12 +144,6 @@ class MainActivity : AppCompatActivity() {
                 refreshState()
             }
         }
-    }
-
-    private fun findExistingImportedDriver(): String? {
-        val dir = File(filesDir, "drivers/imported_driver")
-        if (!dir.exists()) return null
-        return dir.walkTopDown().firstOrNull { it.isFile && it.extension == "so" }?.absolutePath
     }
 
     private fun toast(msg: String) {

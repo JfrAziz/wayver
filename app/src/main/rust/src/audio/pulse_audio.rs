@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use log::{error, info};
 
-use crate::aaudio_sink::AAudioSink;
+use super::aaudio_sink::AAudioSink;
 
 const PA_INVALID_CHANNEL: u32 = 0xFFFF_FFFF;
 // Native protocol v35 (PulseAudio 15.x). Masking the upper 16 bits on AUTH strips SHM/memfd
