@@ -8,7 +8,8 @@ object AlpineLabwc {
     private val packages =
         listOf(
             "labwc", "foot", "pcmanfm", "font-dejavu",
-            "waybar", "swaybg", "adwaita-icon-theme", "dbus", "fastfetch"
+            "waybar", "swaybg", "adwaita-icon-theme", "dbus", "fastfetch",
+            "pulseaudio-utils", "alsa-plugins-pulse"
         ).joinToString(" ")
 
     val spec =
@@ -22,7 +23,7 @@ object AlpineLabwc {
             },
             launch =
             """
-                if [ ! -x /usr/bin/labwc ] || [ ! -x /usr/bin/waybar ] || [ ! -x /usr/bin/swaybg ] || [ ! -x /usr/bin/dbus-run-session ]; then
+                if [ ! -x /usr/bin/labwc ] || [ ! -x /usr/bin/waybar ] || [ ! -x /usr/bin/swaybg ] || [ ! -x /usr/bin/dbus-run-session ] || [ ! -x /usr/bin/pactl ]; then
                     apk update && apk add --no-cache $packages
                 fi
                 export XDG_CONFIG_HOME=/root/.config

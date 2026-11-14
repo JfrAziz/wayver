@@ -8,7 +8,8 @@ object ArchLabwc {
     private val packages =
         listOf(
             "labwc", "foot", "pcmanfm", "ttf-dejavu",
-            "waybar", "swaybg", "adwaita-icon-theme", "dbus", "fastfetch"
+            "waybar", "swaybg", "adwaita-icon-theme", "dbus", "fastfetch",
+            "libpulse", "pulseaudio-alsa"
         ).joinToString(" ")
 
     private val pacmanPrep =
@@ -31,7 +32,7 @@ object ArchLabwc {
             },
             launch =
             """
-                if [ ! -x /usr/bin/labwc ] || [ ! -x /usr/bin/waybar ] || [ ! -x /usr/bin/swaybg ] || [ ! -x /usr/bin/dbus-run-session ]; then
+                if [ ! -x /usr/bin/labwc ] || [ ! -x /usr/bin/waybar ] || [ ! -x /usr/bin/swaybg ] || [ ! -x /usr/bin/dbus-run-session ] || [ ! -x /usr/bin/pactl ]; then
                     $pacmanPrep && pacman -S --noconfirm --needed --overwrite "/usr/lib/libcrypto.so.3,/usr/lib/libssl.so.3" $packages
                 fi
                 export XDG_CONFIG_HOME=/root/.config
