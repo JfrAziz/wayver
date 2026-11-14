@@ -11,6 +11,8 @@ object Arch : Distro {
     override val rootfsUrl = "https://fl.us.mirror.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz"
     override val markerRelPath = "etc/arch-release"
     override val shellPath = "/bin/bash"
+    override val extraEnv = ArchEnv.containerEnv
+    override val appEnvs = ArchEnv.appEnvs
 
     override val desktops =
         listOf(

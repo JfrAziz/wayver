@@ -11,6 +11,8 @@ object Alpine : Distro {
         "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/aarch64/alpine-minirootfs-3.20.10-aarch64.tar.gz"
     override val markerRelPath = "etc/alpine-release"
     override val shellPath = "/bin/sh"
+    override val extraEnv = AlpineEnv.containerEnv
+    override val appEnvs = AlpineEnv.appEnvs
 
     override val desktops =
         listOf(

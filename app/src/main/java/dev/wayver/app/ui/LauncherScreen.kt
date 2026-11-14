@@ -33,6 +33,8 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
@@ -40,6 +42,7 @@ import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -70,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.wayver.app.container.ContainerConfig
 import dev.wayver.app.container.DriverConfig
+import dev.wayver.app.container.EnvConfig
 import dev.wayver.app.container.ResolutionConfig
 import dev.wayver.app.container.ResolutionPreset
 import dev.wayver.app.distro.Distro
@@ -619,6 +623,13 @@ private fun ContainerEditorDialog(
             }
         )
     }
+    var disabledPresets by remember { mutableStateOf(existing?.env?.disabledPresets ?: emptySet()) }
+    var presetEdits by remember { mutableStateOf(existing?.env?.presetEdits ?: emptyMap()) }
+    var expandedPreset by remember { mutableStateOf<String?>(null) }
+    var overrides by remember { mutableStateOf(existing?.env?.overrides ?: emptyMap()) }
+    var newEnvKey by remember { mutableStateOf("") }
+    var newEnvVal by remember { mutableStateOf("") }
+    var showAdvanced by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -748,18 +759,136 @@ private fun ContainerEditorDialog(
                     }
                 }
 
-                Text("Vulkan Driver", color = AppColors.TextMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(
-                        "System Vulkan",
-                        "Bundled Turnip",
-                        "Imported (.zip)"
-                    ).forEachIndexed { idx, label ->
-                        FilterChip(
-                            selected = selectedDriverType == idx,
-                            onClick = { selectedDriverType = idx },
-                            label = { Text(label, fontSize = 12.sp) }
+                TextButton(onClick = { showAdvanced = !showAdvanced }) {
+                    Icon(
+                        imageVector =
+                        if (showAdvanced) {
+                            Icons.Rounded.KeyboardArrowDown
+                        } else {
+                            Icons.Rounded.KeyboardArrowRight
+                        },
+                        contentDescription = null,
+                        tint = AppColors.TextMuted,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Advanced",
+                        color = AppColors.TextMuted,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                if (showAdvanced) {
+                    Text(
+                        text = "Vulkan Driver",
+                        color = AppColors.TextMuted,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(
+                            "System Vulkan",
+                            "Bundled Turnip",
+                            "Imported (.zip)"
+                        ).forEachIndexed { idx, label ->
+                            FilterChip(
+                                selected = selectedDriverType == idx,
+                                onClick = { selectedDriverType = idx },
+                                label = { Text(label, fontSize = 12.sp) }
+                            )
+                        }
+                    }
+
+                    if (chosenDistro.appEnvs.isNotEmpty()) {
+                        Text(
+                            text = "App Env Presets",
+                            color = AppColors.TextMuted,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            chosenDistro.appEnvs.forEach { (app, defaultVars) ->
+                                val enabled = app !in disabledPresets
+                                val activeVars = presetEdits[app] ?: defaultVars
+                                AppEnvPresetCard(
+                                    app = app,
+                                    enabled = enabled,
+                                    isModified = app in presetEdits,
+                                    isExpanded = expandedPreset == app,
+                                    vars = activeVars,
+                                    onToggleEnabled = {
+                                        disabledPresets =
+                                            if (enabled) disabledPresets + app else disabledPresets - app
+                                    },
+                                    onToggleExpand = {
+                                        expandedPreset = if (expandedPreset == app) null else app
+                                    },
+                                    onReset = { presetEdits = presetEdits - app },
+                                    onUpdateVar = { k, newVal ->
+                                        presetEdits = presetEdits + (app to (activeVars + (k to newVal)))
+                                    },
+                                    onRemoveVar = { k ->
+                                        presetEdits = presetEdits + (app to (activeVars - k))
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = "Custom Environment",
+                        color = AppColors.TextMuted,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    overrides.forEach { (k, v) ->
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "$k=$v",
+                                color = AppColors.TextPrimary,
+                                fontSize = 12.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(onClick = { overrides = overrides - k }) {
+                                Text("Remove", color = AppColors.TextMuted, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = newEnvKey,
+                            onValueChange = { newEnvKey = it },
+                            label = { Text("KEY") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = newEnvVal,
+                            onValueChange = { newEnvVal = it },
+                            label = { Text("VALUE") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            onClick = {
+                                val k = newEnvKey.trim()
+                                if (k.isNotEmpty()) {
+                                    overrides = overrides + (k to newEnvVal)
+                                    newEnvKey = ""
+                                    newEnvVal = ""
+                                }
+                            }
+                        ) {
+                            Text("Add", fontSize = 12.sp)
+                        }
                     }
                 }
             }
@@ -797,7 +926,13 @@ private fun ContainerEditorDialog(
                             distroId = chosenDistro.id,
                             desktopId = selectedDesktopId,
                             resolution = resolution,
-                            driver = driver
+                            driver = driver,
+                            env =
+                            EnvConfig(
+                                disabledPresets = disabledPresets,
+                                presetEdits = presetEdits,
+                                overrides = overrides
+                            )
                         )
                     )
                 },
@@ -816,4 +951,103 @@ private fun ContainerEditorDialog(
             }
         }
     )
+}
+
+@Composable
+private fun AppEnvPresetCard(
+    app: String,
+    enabled: Boolean,
+    isModified: Boolean,
+    isExpanded: Boolean,
+    vars: Map<String, String>,
+    onToggleEnabled: () -> Unit,
+    onToggleExpand: () -> Unit,
+    onReset: () -> Unit,
+    onUpdateVar: (String, String) -> Unit,
+    onRemoveVar: (String) -> Unit
+) {
+    Column(
+        modifier =
+        Modifier
+            .fillMaxWidth()
+            .border(1.dp, AppColors.Border, RoundedCornerShape(10.dp))
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp)
+        ) {
+            Checkbox(
+                checked = enabled,
+                onCheckedChange = { onToggleEnabled() }
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = app,
+                    color = if (enabled) AppColors.TextPrimary else AppColors.TextMuted,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = if (isModified) "Modified · ${vars.size} vars" else "${vars.size} vars",
+                    color = if (isModified) AppColors.Primary else AppColors.TextMuted,
+                    fontSize = 11.sp
+                )
+            }
+            if (isModified) {
+                IconButton(onClick = onReset, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        imageVector = Icons.Rounded.Refresh,
+                        contentDescription = "Reset $app preset",
+                        tint = AppColors.TextMuted,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+            IconButton(onClick = onToggleExpand, modifier = Modifier.size(40.dp)) {
+                Icon(
+                    imageVector =
+                    if (isExpanded) {
+                        Icons.Rounded.KeyboardArrowDown
+                    } else {
+                        Icons.Rounded.KeyboardArrowRight
+                    },
+                    contentDescription = if (isExpanded) "Collapse $app" else "Expand $app",
+                    tint = AppColors.TextMuted,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+        if (isExpanded) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(start = 12.dp, end = 8.dp, bottom = 10.dp)
+            ) {
+                vars.forEach { (k, v) ->
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = v,
+                            onValueChange = { onUpdateVar(k, it) },
+                            label = { Text(k, fontSize = 10.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(
+                            onClick = { onRemoveVar(k) },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.DeleteOutline,
+                                contentDescription = "Remove $k",
+                                tint = AppColors.TextMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

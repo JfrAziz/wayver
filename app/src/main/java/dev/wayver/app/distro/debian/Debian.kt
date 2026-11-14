@@ -12,6 +12,8 @@ object Debian : Distro {
             "dist-arm64v8/trixie/oci/blobs/rootfs.tar.gz"
     override val markerRelPath = "etc/debian_version"
     override val shellPath = "/bin/bash"
+    override val extraEnv = DebianEnv.containerEnv
+    override val appEnvs = DebianEnv.appEnvs
 
     override val desktops =
         listOf(

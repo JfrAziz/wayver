@@ -11,6 +11,8 @@ object Ubuntu : Distro {
         "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.4-base-arm64.tar.gz"
     override val markerRelPath = "etc/os-release"
     override val shellPath = "/bin/bash"
+    override val extraEnv = UbuntuEnv.containerEnv
+    override val appEnvs = UbuntuEnv.appEnvs
 
     override val desktops =
         listOf(

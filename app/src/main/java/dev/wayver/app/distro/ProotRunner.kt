@@ -1,6 +1,7 @@
 package dev.wayver.app.distro
 
 import android.content.Context
+import dev.wayver.app.container.EnvConfig
 import dev.wayver.app.utils.ContainerLogger
 import java.io.BufferedReader
 import java.io.File
@@ -30,7 +31,7 @@ class ProotRunner(
     @Volatile
     private var activeProcess: Process? = null
 
-    fun runCommand(distro: Distro, cmd: String, icdJsonPath: String? = null) {
+    fun runCommand(distro: Distro, cmd: String, envConfig: EnvConfig = EnvConfig()) {
         stop()
         thread(name = "proot-$containerId") {
             try {
@@ -53,7 +54,22 @@ class ProotRunner(
                 val pb =
                     ProcessBuilder(args).apply {
                         redirectErrorStream(true)
-                        configureEnv(environment(), prootLoader, distro, icdJsonPath)
+                        environment().apply {
+                            // PROOT_TMP_DIR is required because Android does not expose a writable /tmp for ELF staging.
+                            put("PROOT_LOADER", prootLoader.absolutePath)
+                            put("PROOT_TMP_DIR", tmpDir.absolutePath)
+
+                            // Must match the Wayland & PulseAudio sockets created by DisplayActivity in xdgRuntimeDir.
+                            put("XDG_RUNTIME_DIR", "/tmp/xdg-runtime")
+                            put("WAYLAND_DISPLAY", "wayland-0")
+                            put("PULSE_SERVER", "unix:/tmp/xdg-runtime/pulse-native")
+
+                            put("HOME", "/root")
+                            put("TERM", "xterm-256color")
+                            put("LANG", "C.UTF-8")
+                            put("PATH", distro.pathEnv)
+                            putAll(envConfig.resolve(distro.extraEnv, distro.appEnvs))
+                        }
                     }
 
                 logger.info("Starting PRoot (${distro.id}): $cmd")
@@ -90,27 +106,6 @@ class ProotRunner(
         "-b", "${xdgRuntimeDir.absolutePath}:/tmp/xdg-runtime",
         distro.shellPath, "-c", cmd
     )
-
-    private fun configureEnv(env: MutableMap<String, String>, prootLoader: File, distro: Distro, icdJsonPath: String?) {
-        // PROOT_TMP_DIR is required because Android does not expose a writable /tmp for ELF loader staging.
-        env["PROOT_LOADER"] = prootLoader.absolutePath
-        env["PROOT_TMP_DIR"] = tmpDir.absolutePath
-
-        // Must match the Wayland & PulseAudio sockets created by DisplayActivity's NativeBridge in xdgRuntimeDir.
-        env["XDG_RUNTIME_DIR"] = "/tmp/xdg-runtime"
-        env["WAYLAND_DISPLAY"] = "wayland-0"
-        env["PULSE_SERVER"] = "unix:/tmp/xdg-runtime/pulse-native"
-
-        env["HOME"] = "/root"
-        env["TERM"] = "xterm-256color"
-        env["LANG"] = "C.UTF-8"
-        env["PATH"] = distro.pathEnv
-        distro.extraEnv.forEach { (k, v) -> env[k] = v }
-
-        if (icdJsonPath != null) {
-            env["VK_ICD_FILENAMES"] = icdJsonPath
-        }
-    }
 
     private fun streamProcessOutput(proc: Process, distro: Distro) {
         BufferedReader(InputStreamReader(proc.inputStream)).use { reader ->

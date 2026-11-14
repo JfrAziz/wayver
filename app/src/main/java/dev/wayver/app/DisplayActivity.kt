@@ -215,7 +215,11 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private fun bootDesktop(desktopId: String) {
         val spec = activeDistro.desktopById(desktopId)
         spec.prepare(this, rootfsManager.rootfsDir(containerConfig.id))
-        prootRunner.runCommand(activeDistro, spec.launch)
+        prootRunner.runCommand(
+            cmd = spec.launch,
+            distro = activeDistro,
+            envConfig = containerConfig.env
+        )
     }
 
     private fun loadBundledTurnip() {

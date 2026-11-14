@@ -94,6 +94,31 @@ class ContainerStore(context: Context) {
                 if (drv.driverPath != null) put("driverPath", drv.driverPath)
             }
         }
+        put(
+            "env",
+            JSONObject().apply {
+                put("disabledPresets", JSONArray(c.env.disabledPresets.sorted()))
+                put(
+                    "presetEdits",
+                    JSONObject().apply {
+                        c.env.presetEdits.forEach { (app, vars) ->
+                            put(
+                                app,
+                                JSONObject().apply {
+                                    vars.forEach { (k, v) -> put(k, v) }
+                                }
+                            )
+                        }
+                    }
+                )
+                put(
+                    "overrides",
+                    JSONObject().apply {
+                        c.env.overrides.forEach { (k, v) -> put(k, v) }
+                    }
+                )
+            }
+        )
     }
 
     private fun fromJson(o: JSONObject): ContainerConfig {
@@ -127,13 +152,58 @@ class ContainerStore(context: Context) {
 
                 else -> DriverConfig.System
             }
+        val envObj = o.optJSONObject("env")
+        val disabledPresets =
+            buildSet {
+                val arr = envObj?.optJSONArray("disabledPresets") ?: o.optJSONArray("disabledAppEnvs")
+                if (arr != null) {
+                    for (i in 0 until arr.length()) {
+                        val item = arr.optString(i).trim()
+                        if (item.isNotEmpty()) add(item)
+                    }
+                }
+            }
+        val presetEdits =
+            buildMap {
+                val editsObj = envObj?.optJSONObject("presetEdits")
+                if (editsObj != null) {
+                    val apps = editsObj.keys()
+                    while (apps.hasNext()) {
+                        val app = apps.next().trim()
+                        val varsObj = editsObj.optJSONObject(app)
+                        if (app.isNotEmpty() && varsObj != null) {
+                            val vars =
+                                buildMap {
+                                    val keys = varsObj.keys()
+                                    while (keys.hasNext()) {
+                                        val k = keys.next().trim()
+                                        if (k.isNotEmpty()) put(k, varsObj.optString(k))
+                                    }
+                                }
+                            put(app, vars)
+                        }
+                    }
+                }
+            }
+        val overrides =
+            buildMap {
+                val obj = envObj?.optJSONObject("overrides") ?: o.optJSONObject("customEnv")
+                if (obj != null) {
+                    val keys = obj.keys()
+                    while (keys.hasNext()) {
+                        val k = keys.next().trim()
+                        if (k.isNotEmpty()) put(k, obj.optString(k))
+                    }
+                }
+            }
         return ContainerConfig(
             id = o.optString("id", newId()),
             name = o.optString("name", "Linux Container"),
             distroId = o.optString("distroId", "alpine"),
             desktopId = o.optString("desktopId", "labwc"),
             resolution = resolution,
-            driver = driver
+            driver = driver,
+            env = EnvConfig(disabledPresets = disabledPresets, presetEdits = presetEdits, overrides = overrides)
         )
     }
 

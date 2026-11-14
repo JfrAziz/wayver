@@ -73,11 +73,35 @@ sealed interface DriverConfig {
     }
 }
 
+/**
+ * Per-container environment configuration layered on top of distro defaults:
+ * distro base env -> enabled verified app presets -> user overrides.
+ */
+data class EnvConfig(
+    val overrides: Map<String, String> = emptyMap(),
+    val disabledPresets: Set<String> = emptySet(),
+    val presetEdits: Map<String, Map<String, String>> = emptyMap()
+) {
+    fun resolve(
+        base: Map<String, String> = emptyMap(),
+        presets: Map<String, Map<String, String>> = emptyMap()
+    ): Map<String, String> = buildMap {
+        putAll(base)
+        for ((app, defaultVars) in presets) {
+            if (app !in disabledPresets) {
+                putAll(presetEdits[app] ?: defaultVars)
+            }
+        }
+        putAll(overrides)
+    }
+}
+
 data class ContainerConfig(
     val id: String,
     val name: String,
     val distroId: String,
     val desktopId: String = "labwc",
+    val env: EnvConfig = EnvConfig(),
     val driver: DriverConfig = DriverConfig.System,
     val resolution: ResolutionConfig = ResolutionConfig.Preset(ResolutionPreset.NATIVE)
 )

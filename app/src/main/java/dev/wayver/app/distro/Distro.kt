@@ -22,6 +22,10 @@ interface Distro {
         get() = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     val extraEnv: Map<String, String>
         get() = emptyMap()
+
+    /** Per-app environment overrides installed as `/usr/local/bin/<app>` wrapper shims. */
+    val appEnvs: Map<String, Map<String, String>>
+        get() = emptyMap()
     val desktops: List<DesktopSpec>
 
     fun desktopById(desktopId: String?): DesktopSpec = desktops.firstOrNull { it.id == desktopId } ?: desktops.first()
