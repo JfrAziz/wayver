@@ -125,7 +125,7 @@ object AppColors {
 }
 
 @Composable
-fun LinuxDesktopTheme(
+fun WayverTheme(
     themeMode: ThemeMode = ThemeMode.AUTO,
     syncSystemBars: Boolean = true,
     content: @Composable () -> Unit

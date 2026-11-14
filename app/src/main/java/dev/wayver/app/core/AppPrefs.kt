@@ -3,7 +3,7 @@ package dev.wayver.app.core
 import android.content.Context
 
 class AppPrefs(context: Context) {
-    private val prefs = context.getSharedPreferences("linux_desktop_prefs", Context.MODE_PRIVATE)
+    private val prefs = context.getSharedPreferences("wayver_prefs", Context.MODE_PRIVATE)
 
     var activeDistroId: String
         get() = prefs.getString("active_distro_id", "alpine") ?: "alpine"

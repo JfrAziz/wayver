@@ -100,8 +100,8 @@ pub(super) fn init_vulkan() -> Result<(VulkanContext, String), String> {
         unsafe { ash::Entry::load() }.map_err(|e| format!("Failed to load libvulkan.so: {e:?}"))?;
 
     // 2. Create VkInstance with Android surface extensions enabled.
-    let app_name = c"LinuxDesktopMVP";
-    let engine_name = c"LinuxDesktopCompositor";
+    let app_name = c"Wayver";
+    let engine_name = c"WayverCompositor";
     let app_info = vk::ApplicationInfo::default()
         .application_name(app_name)
         .application_version(vk::make_api_version(0, 0, 1, 0))

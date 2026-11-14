@@ -101,7 +101,7 @@ impl CompositorState {
             w / 8,
             h / 8,
             wl_output::Subpixel::Unknown,
-            "LinuxDesktop".into(),
+            "Wayver".into(),
             "AndroidSurface".into(),
             wl_output::Transform::Normal,
         );

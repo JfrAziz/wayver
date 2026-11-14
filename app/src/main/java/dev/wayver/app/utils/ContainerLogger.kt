@@ -8,7 +8,7 @@ import android.util.Log
  * avoiding threading `onLog: (String) -> Unit` callbacks through every method signature.
  */
 class ContainerLogger(
-    private val tag: String = "LinuxDesktop",
+    private val tag: String = "Wayver",
     private val onLine: (String) -> Unit = {}
 ) {
     fun info(message: String) {

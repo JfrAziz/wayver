@@ -20,7 +20,7 @@ fn init_logger() {
         android_logger::init_once(
             android_logger::Config::default()
                 .with_max_level(log::LevelFilter::Info)
-                .with_tag("LinuxDesktopMVP"),
+                .with_tag("Wayver"),
         );
     });
 }

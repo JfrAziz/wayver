@@ -7,7 +7,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class ContainerStore(context: Context) {
-    private val prefs = context.getSharedPreferences("linux_desktop_containers", Context.MODE_PRIVATE)
+    private val prefs = context.getSharedPreferences("wayver_containers", Context.MODE_PRIVATE)
     private val appPrefs = AppPrefs(context)
 
     fun getAll(): List<ContainerConfig> {

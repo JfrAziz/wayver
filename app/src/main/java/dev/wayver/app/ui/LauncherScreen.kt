@@ -99,7 +99,7 @@ fun LauncherScreen(
     onDownloadImage: (Distro) -> Unit,
     onImportImage: (Distro) -> Unit
 ) {
-    LinuxDesktopTheme(themeMode = state.themeMode) {
+    WayverTheme(themeMode = state.themeMode) {
         Scaffold(
             containerColor = AppColors.Bg
         ) { innerPadding ->

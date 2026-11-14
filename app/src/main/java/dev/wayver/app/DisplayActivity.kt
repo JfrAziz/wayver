@@ -64,21 +64,26 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
         super.onCreate(savedInstanceState)
 
         containerStore = ContainerStore(this)
+
         val containerId = intent.getStringExtra(EXTRA_CONTAINER_ID) ?: intent.data?.lastPathSegment
+
         containerConfig = containerStore.getById(containerId)
+
         activeDistro = DistroRegistry.byId(containerConfig.distroId)
+
         updateTaskDescription()
 
-        val logger =
-            ContainerLogger("LinuxDesktop") { line ->
-                runOnUiThread { quickMenuState.appendLog(line) }
-            }
+        val logger = ContainerLogger("Wayver") { line ->
+            runOnUiThread { quickMenuState.appendLog(line) }
+        }
+
         rootfsManager = RootfsManager(this, logger)
+
         prootRunner = ProotRunner(this, rootfsManager, containerConfig.id, logger)
 
         runtimeDirPath = prootRunner.xdgRuntimeDir.absolutePath
         sessionHandle = NativeBridge.nativeCreateSession()
-        NativeBridge.nativeSetRefreshRate(sessionHandle, displayRefreshRateHz())
+        NativeBridge.nativeSetRefreshRate(sessionHandle, getDisplatRefreshRateHz())
         NativeBridge.nativeInitRuntime(sessionHandle, runtimeDirPath)
         ContainerManager.register(containerConfig.id, this, prootRunner)
 
@@ -311,7 +316,7 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
     }
 
-    private fun displayRefreshRateHz(): Float {
+    private fun getDisplatRefreshRateHz(): Float {
         val hz =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 display?.refreshRate

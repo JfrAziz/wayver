@@ -94,7 +94,7 @@ fun QuickMenuOverlay(
     onStopContainer: () -> Unit,
     onRefreshStatus: () -> Unit
 ) {
-    LinuxDesktopTheme(themeMode = state.themeMode, syncSystemBars = false) {
+    WayverTheme(themeMode = state.themeMode, syncSystemBars = false) {
         Box(modifier = Modifier.fillMaxSize()) {
             // Only 2 floating pill buttons when the right-side sheet is closed: Keyboard + Quick Menu.
             if (!state.isOpen) {
