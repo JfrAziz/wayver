@@ -177,13 +177,17 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
                         onMainMenu = {
                             startActivity(
                                 Intent(this@DisplayActivity, MainActivity::class.java)
-                                    .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             )
                         },
                         onSwitchContainer = { target ->
                             startActivity(createIntent(this@DisplayActivity, target.id))
                         },
                         onStopContainer = {
+                            startActivity(
+                                Intent(this@DisplayActivity, MainActivity::class.java)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
                             ContainerManager.stopContainer(containerConfig.id)
                         },
                         onRefreshStatus = {

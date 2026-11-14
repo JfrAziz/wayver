@@ -67,9 +67,8 @@ object ContainerManager {
         val entry = active.remove(containerId) ?: return
         entry.runner.stop()
         entry.activityRef.get()?.let { act ->
-            if (!act.isFinishing && !act.isDestroyed) {
+            if (!act.isFinishing && !act.isDestroyed)
                 act.runOnUiThread { act.finishAndRemoveTask() }
-            }
         }
         notifyChanged()
     }

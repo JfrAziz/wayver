@@ -18,7 +18,7 @@ object ArchSway {
         if [ ! -d /etc/pacman.d/gnupg/private-keys-v1.d ]; then
             pacman-key --init && pacman-key --populate archlinuxarm
         fi
-        pacman -Sy --noconfirm
+        pacman -Syy --noconfirm
         """.trimIndent()
 
     val spec =
@@ -34,7 +34,7 @@ object ArchSway {
             launch =
             """
                 if [ ! -x /usr/bin/sway ] || [ ! -x /usr/bin/autotiling ] || [ ! -x /usr/bin/fuzzel ] || [ ! -x /usr/bin/waybar ] || [ ! -x /usr/bin/swaybg ] || [ ! -x /usr/bin/dbus-run-session ] || [ ! -x /usr/bin/pactl ]; then
-                    $pacmanPrep && pacman -S --noconfirm --needed $packages
+                    $pacmanPrep && pacman -Syu --noconfirm --needed $packages
                 fi
                 export XDG_CONFIG_HOME=/root/.config
                 export WLR_BACKENDS=wayland

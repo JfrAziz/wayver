@@ -83,9 +83,11 @@ class MainActivity : AppCompatActivity() {
                 },
                 onDeleteContainer = { container ->
                     ContainerManager.stopContainer(container.id)
-                    rootfsManager.deleteContainer(container.id)
                     containerStore.delete(container.id)
                     refreshState()
+                    thread(name = "delete-${container.id}") {
+                        rootfsManager.deleteContainer(container.id)
+                    }
                 },
                 onDownloadImage = ::startImageDownload,
                 onImportImage = { distro ->
@@ -106,9 +108,7 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
-        ) {
-            requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
+        ) requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     override fun onResume() {

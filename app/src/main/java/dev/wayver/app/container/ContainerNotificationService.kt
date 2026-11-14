@@ -38,7 +38,7 @@ class ContainerNotificationService : Service() {
         private fun notifIdFor(containerId: String): Int = 1000 + (containerId.hashCode() and 0x7FFFFFFF) % 100_000
     }
 
-    private lateinit var nm: NotificationManager
+    private val nm: NotificationManager by lazy { getSystemService(NotificationManager::class.java) }
     private val mainHandler = Handler(Looper.getMainLooper())
     private var foregroundNotifId: Int? = null
     private val extraNotifIds = mutableSetOf<Int>()
@@ -50,13 +50,12 @@ class ContainerNotificationService : Service() {
     override fun onCreate() {
         super.onCreate()
 
-        getSystemService(NotificationManager::class.java)
-            .createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Active Containers", NotificationManager.IMPORTANCE_LOW).apply {
-                    description = "Controls for running Linux containers"
-                    setShowBadge(false)
-                }
-            )
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_ID, "Active Containers", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "Controls for running Linux containers"
+                setShowBadge(false)
+            }
+        )
 
         ContainerManager.addListener(onContainersChanged)
     }
@@ -103,10 +102,11 @@ class ContainerNotificationService : Service() {
         val nextExtraIds = running.drop(1).associateBy { notifIdFor(it.id) }
 
         // Cancel any previous foreground or extra notification IDs no longer in use.
-        if (prevFgId != null && prevFgId != nextFgId && prevFgId !in nextExtraIds) {
+        if (prevFgId != null && prevFgId != nextFgId && prevFgId !in nextExtraIds)
             nm.cancel(prevFgId)
-        }
+
         val staleExtras = extraNotifIds.filter { it !in nextExtraIds }
+
         for (id in staleExtras) {
             nm.cancel(id)
             extraNotifIds.remove(id)

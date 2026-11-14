@@ -11,7 +11,7 @@ object ArchFoot {
         if [ ! -d /etc/pacman.d/gnupg/private-keys-v1.d ]; then
             pacman-key --init && pacman-key --populate archlinuxarm
         fi
-        pacman -Sy --noconfirm
+        pacman -Syy --noconfirm
         """.trimIndent()
 
     val spec =
@@ -24,7 +24,7 @@ object ArchFoot {
             launch =
             """
                 if [ ! -x /usr/bin/foot ]; then
-                    $pacmanPrep && pacman -S --noconfirm --needed foot ttf-dejavu
+                    $pacmanPrep && pacman -Syu --noconfirm --needed foot ttf-dejavu
                 fi
                 exec foot
             """.trimIndent()
