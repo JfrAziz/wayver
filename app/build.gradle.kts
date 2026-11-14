@@ -5,6 +5,8 @@ plugins {
     id("org.jlleitschuh.gradle.ktlint")
 }
 
+val rustOutJniDir = layout.buildDirectory.dir("generated/rustJniLibs")
+
 android {
     namespace = "dev.wayver.app"
     compileSdk = 34
@@ -19,12 +21,6 @@ android {
 
         ndk {
             abiFilters += listOf("arm64-v8a")
-        }
-
-        externalNativeBuild {
-            cmake {
-                arguments += listOf("-DANDROID_STL=c++_shared")
-            }
         }
     }
 
@@ -44,6 +40,12 @@ android {
         }
     }
 
+    sourceSets {
+        getByName("main") {
+            jniLibs.srcDir(rustOutJniDir)
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -51,12 +53,6 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
-    }
-
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-        }
     }
 }
 
@@ -71,33 +67,41 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
 }
 
-val cppFiles =
-    fileTree("src/main/cpp") {
-        include("*.c", "*.cpp", "*.h", "*.hpp")
+val buildRustNative =
+    tasks.register<Exec>("buildRustNative") {
+        group = "build"
+        description = "Build libwayver.so from Rust for arm64-v8a with 16 KB ELF alignment"
+
+        val rustDir = file("src/main/rust")
+        val ndkDir = System.getenv("ANDROID_NDK_HOME") ?: android.ndkDirectory.absolutePath
+        val clang = "$ndkDir/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang"
+        val builtSo = file("src/main/rust/target/aarch64-linux-android/release/libwayver.so")
+        val outDir = rustOutJniDir.get().dir("arm64-v8a").asFile
+
+        inputs.dir(rustDir.resolve("src"))
+        inputs.file(rustDir.resolve("Cargo.toml"))
+        outputs.file(outDir.resolve("libwayver.so"))
+
+        environment("CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER", clang)
+        environment("CC_aarch64_linux_android", clang)
+        environment("RUSTFLAGS", "-C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-landroid")
+
+        commandLine(
+            "cargo",
+            "build",
+            "--manifest-path",
+            rustDir.resolve("Cargo.toml").absolutePath,
+            "--target",
+            "aarch64-linux-android",
+            "--release"
+        )
+
+        doLast {
+            outDir.mkdirs()
+            builtSo.copyTo(outDir.resolve("libwayver.so"), overwrite = true)
+        }
     }
 
-tasks.register<Exec>("clangFormat") {
-    group = "formatting"
-    description = "Format C/C++ sources with clang-format"
-    commandLine(listOf("clang-format", "-i") + cppFiles.files.map { it.absolutePath })
-}
-
-tasks.register<Exec>("clangFormatCheck") {
-    group = "verification"
-    description = "Verify C/C++ formatting with clang-format"
-    commandLine(listOf("clang-format", "--dry-run", "--Werror") + cppFiles.files.map { it.absolutePath })
-}
-
-tasks.register<Exec>("clangTidy") {
-    group = "verification"
-    description = "Lint C/C++ sources with clang-tidy"
-    dependsOn("externalNativeBuildDebug")
-    val cSources =
-        fileTree("src/main/cpp") {
-            include("*.c", "*.cpp")
-        }
-    commandLine(
-        listOf("clang-tidy", "-p", ".cxx/tools/debug/arm64-v8a") +
-            cSources.files.map { it.absolutePath }
-    )
+tasks.named("preBuild") {
+    dependsOn(buildRustNative)
 }

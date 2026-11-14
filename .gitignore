@@ -1,6 +1,7 @@
 # Build outputs
 build/
 app/build/
+app/src/main/rust/target/
 .cxx/
 *.apk
 *.ap_
