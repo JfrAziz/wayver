@@ -24,6 +24,7 @@ class ProotRunner(
     private val containerBase = rootfsManager.containerDir(containerId)
     private val tmpDir = File(containerBase, "proot-tmp").apply { mkdirs() }
     private val shmDir = File(containerBase, "dev-shm").apply { mkdirs() }
+    private val procSysBindings = ProcSysBindings(containerBase, containerId)
 
     /** Host directory bound to `/tmp/xdg-runtime` inside PRoot so the native Wayland server and guest share sockets. */
     val xdgRuntimeDir = File(containerBase, "xdg-runtime").apply { mkdirs() }
@@ -50,6 +51,7 @@ class ProotRunner(
                 }
 
                 val rootfsDir = rootfsManager.rootfsDir(containerId)
+                procSysBindings.prepare()
                 val args = buildProotArgs(prootBin, rootfsDir, distro, cmd)
                 val pb =
                     ProcessBuilder(args).apply {
@@ -75,9 +77,11 @@ class ProotRunner(
                 logger.info("Starting PRoot (${distro.id}): $cmd")
                 val proc = pb.start()
                 activeProcess = proc
+                procSysBindings.startSampler()
                 streamProcessOutput(proc, distro)
 
                 val code = proc.waitFor()
+                procSysBindings.stopSampler()
                 logger.info("PRoot (${distro.id}) exited with code $code")
             } catch (t: Throwable) {
                 logger.error("PRoot error", t)
@@ -86,26 +90,33 @@ class ProotRunner(
     }
 
     fun stop() {
+        procSysBindings.stopSampler()
         activeProcess?.destroyForcibly()
         activeProcess = null
     }
 
-    private fun buildProotArgs(prootBin: File, rootfsDir: File, distro: Distro, cmd: String): List<String> = listOf(
-        prootBin.absolutePath,
-        "-r", rootfsDir.absolutePath,
-        // Fake root (UID/GID 0) so package managers and rootfs setup work unprivileged.
-        "-0",
-        // Android app_data_file blocks hardlinks (EPERM); convert link(2) to symlinks for dpkg/apt.
-        "--link2symlink",
-        "-w", "/root",
-        // Bind Android kernel interfaces and per-container IPC/Wayland directories.
-        "-b", "/dev",
-        "-b", "${shmDir.absolutePath}:/dev/shm",
-        "-b", "/proc",
-        "-b", "/sys",
-        "-b", "${xdgRuntimeDir.absolutePath}:/tmp/xdg-runtime",
-        distro.shellPath, "-c", cmd
-    )
+    private fun buildProotArgs(prootBin: File, rootfsDir: File, distro: Distro, cmd: String): List<String> = buildList {
+        addAll(
+            listOf(
+                prootBin.absolutePath,
+                "-r", rootfsDir.absolutePath,
+                // Fake root (UID/GID 0) so package managers and rootfs setup work unprivileged.
+                "-0",
+                // Android app_data_file blocks hardlinks (EPERM); convert link(2) to symlinks for dpkg/apt.
+                "--link2symlink",
+                "-w", "/root",
+                // Bind Android kernel interfaces and per-container IPC/Wayland directories.
+                "-b", "/dev",
+                "-b", "${shmDir.absolutePath}:/dev/shm"
+            )
+        )
+        addAll(procSysBindings.bindArgs())
+        add("-b")
+        add("${xdgRuntimeDir.absolutePath}:/tmp/xdg-runtime")
+        add(distro.shellPath)
+        add("-c")
+        add(cmd)
+    }
 
     private fun streamProcessOutput(proc: Process, distro: Distro) {
         BufferedReader(InputStreamReader(proc.inputStream)).use { reader ->

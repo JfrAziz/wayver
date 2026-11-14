@@ -61,6 +61,7 @@ pub(super) struct CompositorState {
     pub pointer_entered: bool,
     pub keyboard_focused: bool,
     pub last_mods: u32,
+    pub pressed_keys: Vec<u32>,
 }
 
 impl CompositorState {
@@ -207,6 +208,17 @@ impl CompositorState {
             kbd.modifiers(serial, mods_depressed, 0, 0, 0);
             self.last_mods = mods_depressed;
         }
+        if pressed {
+            if self.pressed_keys.contains(&evdev_key) {
+                return;
+            }
+            self.pressed_keys.push(evdev_key);
+        } else {
+            let Some(pos) = self.pressed_keys.iter().position(|&k| k == evdev_key) else {
+                return;
+            };
+            self.pressed_keys.swap_remove(pos);
+        }
         let serial = self.next_serial();
         let state = if pressed {
             wl_keyboard::KeyState::Pressed
@@ -294,6 +306,7 @@ pub(super) fn run_event_loop(cfg: EventLoopConfig) {
         pointer_entered: false,
         keyboard_focused: false,
         last_mods: 0,
+        pressed_keys: Vec::new(),
     };
 
     info!("Wayland event loop started on {socket_path}");

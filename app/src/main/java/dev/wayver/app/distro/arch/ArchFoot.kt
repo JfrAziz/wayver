@@ -11,7 +11,7 @@ object ArchFoot {
         if [ ! -d /etc/pacman.d/gnupg/private-keys-v1.d ]; then
             pacman-key --init && pacman-key --populate archlinuxarm
         fi
-        pacman -Syy --noconfirm
+        pacman -Sy --noconfirm
         """.trimIndent()
 
     val spec =

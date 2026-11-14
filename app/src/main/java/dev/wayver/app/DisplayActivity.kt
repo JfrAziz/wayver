@@ -58,6 +58,7 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private var surfaceW = 0
     private var surfaceH = 0
     private var sessionStarted = false
+    private val heldKeys = mutableSetOf<Int>()
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -225,7 +226,12 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) enterFullscreen()
+        if (hasFocus) {
+            enterFullscreen()
+        } else {
+            for (key in heldKeys.toList()) NativeBridge.nativeOnKey(sessionHandle, key, false, 0)
+            heldKeys.clear()
+        }
     }
 
     private fun enterFullscreen() {
@@ -288,10 +294,15 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
         val evdev = KeyMapper.toEvdev(event.keyCode)
         if (evdev != null && (event.action == KeyEvent.ACTION_DOWN || event.action == KeyEvent.ACTION_UP)) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount > 0) {
+                return true
+            }
+            val pressed = event.action == KeyEvent.ACTION_DOWN
+            if (pressed) heldKeys.add(evdev) else heldKeys.remove(evdev)
             NativeBridge.nativeOnKey(
                 sessionHandle,
                 evdev,
-                event.action == KeyEvent.ACTION_DOWN,
+                pressed,
                 KeyMapper.modifiers(event)
             )
             return true
