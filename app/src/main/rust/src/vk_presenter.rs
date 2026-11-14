@@ -7,20 +7,46 @@ use log::{error, info};
 use crate::vk_loader::VkLoader;
 
 const MAX_SWAPCHAIN_IMAGES: usize = 8;
+// Double-buffered CPU/GPU frame slots: lets the CPU prepare frame N+1 while the GPU finishes frame N.
+const FRAMES_IN_FLIGHT: usize = 2;
+
+/// Bounding rectangle of damaged pixels for partial staging-to-swapchain uploads.
+#[derive(Clone, Copy, Debug)]
+pub struct DirtyRect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
 
 pub struct VkPresenter {
     inner: Mutex<PresenterInner>,
 }
 
-struct UploadResources {
-    staging_buf: vk::Buffer,
-    staging_mem: vk::DeviceMemory,
-    staging_size: vk::DeviceSize,
-    upload_img: vk::Image,
-    upload_mem: vk::DeviceMemory,
+struct StagingBuffer {
+    buf: vk::Buffer,
+    mem: vk::DeviceMemory,
+    size: vk::DeviceSize,
+    mapped_ptr: *mut u8,
+}
+
+unsafe impl Send for StagingBuffer {}
+
+struct FrameSlot {
+    cmd_buf: vk::CommandBuffer,
+    sem_avail: vk::Semaphore,
+    sem_done: vk::Semaphore,
+    fence: vk::Fence,
+    staging: Option<StagingBuffer>,
+}
+
+struct UploadImage {
+    img: vk::Image,
+    mem: vk::DeviceMemory,
     width: u32,
     height: u32,
     format: vk::Format,
+    initialized: bool,
 }
 
 struct SwapchainState {
@@ -43,13 +69,11 @@ struct VulkanContext {
     queue: vk::Queue,
     queue_family: u32,
     cmd_pool: vk::CommandPool,
-    cmd_buf: vk::CommandBuffer,
-    sem_avail: vk::Semaphore,
-    sem_done: vk::Semaphore,
-    fence: vk::Fence,
+    frames: [FrameSlot; FRAMES_IN_FLIGHT],
+    frame_idx: usize,
     surface: vk::SurfaceKHR,
     swapchain: Option<SwapchainState>,
-    upload: Option<UploadResources>,
+    upload_img: Option<UploadImage>,
 }
 
 struct PresenterInner {
@@ -215,14 +239,20 @@ impl VkPresenter {
             return false;
         };
 
+        let slot_idx = vk.frame_idx;
+        let fence = vk.frames[slot_idx].fence;
+        let sem_avail = vk.frames[slot_idx].sem_avail;
+        let sem_done = vk.frames[slot_idx].sem_done;
+        let cmd_buf = vk.frames[slot_idx].cmd_buf;
+
         unsafe {
-            let _ = vk.device.wait_for_fences(&[vk.fence], true, u64::MAX);
-            let _ = vk.device.reset_fences(&[vk.fence]);
+            let _ = vk.device.wait_for_fences(&[fence], true, u64::MAX);
+            let _ = vk.device.reset_fences(&[fence]);
 
             let img_idx = match vk.swapchain_loader.acquire_next_image(
                 sw.swapchain,
                 u64::MAX,
-                vk.sem_avail,
+                sem_avail,
                 vk::Fence::null(),
             ) {
                 Ok((idx, _)) => idx,
@@ -235,10 +265,10 @@ impl VkPresenter {
             let swap_img = sw.images[img_idx as usize];
             let _ = vk
                 .device
-                .reset_command_buffer(vk.cmd_buf, vk::CommandBufferResetFlags::empty());
+                .reset_command_buffer(cmd_buf, vk::CommandBufferResetFlags::empty());
             let cbbi = vk::CommandBufferBeginInfo::default()
                 .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-            let _ = vk.device.begin_command_buffer(vk.cmd_buf, &cbbi);
+            let _ = vk.device.begin_command_buffer(cmd_buf, &cbbi);
 
             let range = color_subresource_range();
             let to_clear = image_barrier(
@@ -250,7 +280,7 @@ impl VkPresenter {
                 range,
             );
             vk.device.cmd_pipeline_barrier(
-                vk.cmd_buf,
+                cmd_buf,
                 vk::PipelineStageFlags::TOP_OF_PIPE,
                 vk::PipelineStageFlags::TRANSFER,
                 vk::DependencyFlags::empty(),
@@ -263,7 +293,7 @@ impl VkPresenter {
                 float32: [r, g, b, a],
             };
             vk.device.cmd_clear_color_image(
-                vk.cmd_buf,
+                cmd_buf,
                 swap_img,
                 vk::ImageLayout::TRANSFER_DST_OPTIMAL,
                 &color,
@@ -279,7 +309,7 @@ impl VkPresenter {
                 range,
             );
             vk.device.cmd_pipeline_barrier(
-                vk.cmd_buf,
+                cmd_buf,
                 vk::PipelineStageFlags::TRANSFER,
                 vk::PipelineStageFlags::BOTTOM_OF_PIPE,
                 vk::DependencyFlags::empty(),
@@ -287,23 +317,35 @@ impl VkPresenter {
                 &[],
                 &[to_present],
             );
-            let _ = vk.device.end_command_buffer(vk.cmd_buf);
+            let _ = vk.device.end_command_buffer(cmd_buf);
 
-            if !submit_and_present(vk, sw.swapchain, img_idx) {
+            if !submit_and_present(
+                &vk.device,
+                &vk.swapchain_loader,
+                vk.queue,
+                cmd_buf,
+                sem_avail,
+                sem_done,
+                fence,
+                sw.swapchain,
+                img_idx,
+            ) {
                 return false;
             }
+            vk.frame_idx = (vk.frame_idx + 1) % FRAMES_IN_FLIGHT;
             info!("Presented clear frame #{img_idx}");
             true
         }
     }
 
-    pub fn present_pixels(
+    pub fn present_pixels_damaged(
         &self,
         pixels: &[u8],
         width: u32,
         height: u32,
         stride_bytes: u32,
         is_bgra: bool,
+        dirty: Option<DirtyRect>,
     ) -> bool {
         if pixels.is_empty() || width == 0 || height == 0 {
             return false;
@@ -316,53 +358,93 @@ impl VkPresenter {
             return false;
         }
 
+        let slot_idx = vk.frame_idx;
+        let fence = vk.frames[slot_idx].fence;
+        let sem_avail = vk.frames[slot_idx].sem_avail;
+        let sem_done = vk.frames[slot_idx].sem_done;
+        let cmd_buf = vk.frames[slot_idx].cmd_buf;
+
         unsafe {
-            let _ = vk.device.wait_for_fences(&[vk.fence], true, u64::MAX);
-            let _ = vk.device.reset_fences(&[vk.fence]);
+            // Wait only on this frame slot's fence (allows CPU+GPU overlap across FRAMES_IN_FLIGHT).
+            let _ = vk.device.wait_for_fences(&[fence], true, u64::MAX);
+            let _ = vk.device.reset_fences(&[fence]);
 
             let src_fmt = if is_bgra {
                 vk::Format::B8G8R8A8_UNORM
             } else {
                 vk::Format::R8G8B8A8_UNORM
             };
-            if !ensure_upload_resources(vk, width, height, src_fmt) {
-                error!("ensure_upload_resources failed for {width}x{height}");
+
+            if !ensure_upload_image(vk, width, height, src_fmt) {
+                error!("ensure_upload_image failed for {width}x{height}");
                 return false;
             }
 
-            let upload = vk.upload.as_ref().unwrap();
-            let total_bytes = (width as vk::DeviceSize) * (height as vk::DeviceSize) * 4;
-            let Ok(mapped) = vk.device.map_memory(
-                upload.staging_mem,
-                0,
-                total_bytes,
-                vk::MemoryMapFlags::empty(),
-            ) else {
-                return false;
+            let upload_was_initialized = vk.upload_img.as_ref().unwrap().initialized;
+            let rect = match dirty {
+                Some(d) if upload_was_initialized && d.width > 0 && d.height > 0 => {
+                    let x = d.x.min(width.saturating_sub(1));
+                    let y = d.y.min(height.saturating_sub(1));
+                    let w = d.width.min(width - x).max(1);
+                    let h = d.height.min(height - y).max(1);
+                    DirtyRect {
+                        x,
+                        y,
+                        width: w,
+                        height: h,
+                    }
+                }
+                _ => DirtyRect {
+                    x: 0,
+                    y: 0,
+                    width,
+                    height,
+                },
             };
 
-            let dst = std::slice::from_raw_parts_mut(mapped.cast::<u8>(), total_bytes as usize);
-            let row_bytes = (width * 4) as usize;
+            let copy_bytes = (rect.width as vk::DeviceSize) * (rect.height as vk::DeviceSize) * 4;
+            let full_bytes = (width as vk::DeviceSize) * (height as vk::DeviceSize) * 4;
+            if !ensure_staging_buffer(
+                &vk.device,
+                &vk.mem_props,
+                &mut vk.frames[slot_idx].staging,
+                full_bytes.max(copy_bytes),
+            ) {
+                error!("ensure_staging_buffer failed");
+                return false;
+            }
+
+            let staging = vk.frames[slot_idx].staging.as_ref().unwrap();
+            let dst = std::slice::from_raw_parts_mut(staging.mapped_ptr, copy_bytes as usize);
             let stride = stride_bytes as usize;
-            if stride == row_bytes && pixels.len() >= row_bytes * height as usize {
-                dst.copy_from_slice(&pixels[..row_bytes * height as usize]);
+            let rect_row_bytes = (rect.width as usize) * 4;
+            let full_row_bytes = (width as usize) * 4;
+
+            if rect.x == 0
+                && rect.y == 0
+                && rect.width == width
+                && rect.height == height
+                && stride == full_row_bytes
+                && pixels.len() >= copy_bytes as usize
+            {
+                dst.copy_from_slice(&pixels[..copy_bytes as usize]);
             } else {
-                for y in 0..height as usize {
-                    let src_off = y * stride;
-                    let dst_off = y * row_bytes;
-                    if src_off + row_bytes <= pixels.len() {
-                        dst[dst_off..dst_off + row_bytes]
-                            .copy_from_slice(&pixels[src_off..src_off + row_bytes]);
+                let x_off = (rect.x as usize) * 4;
+                for row in 0..rect.height as usize {
+                    let src_off = (rect.y as usize + row) * stride + x_off;
+                    let dst_off = row * rect_row_bytes;
+                    if src_off + rect_row_bytes <= pixels.len() {
+                        dst[dst_off..dst_off + rect_row_bytes]
+                            .copy_from_slice(&pixels[src_off..src_off + rect_row_bytes]);
                     }
                 }
             }
-            vk.device.unmap_memory(upload.staging_mem);
 
             let sw = vk.swapchain.as_ref().unwrap();
             let Ok((img_idx, _)) = vk.swapchain_loader.acquire_next_image(
                 sw.swapchain,
                 u64::MAX,
-                vk.sem_avail,
+                sem_avail,
                 vk::Fence::null(),
             ) else {
                 return false;
@@ -370,23 +452,31 @@ impl VkPresenter {
 
             let swap_img = sw.images[img_idx as usize];
             let extent = sw.extent;
-            let upload_img = upload.upload_img;
-            let staging_buf = upload.staging_buf;
+            let upload_img = vk.upload_img.as_ref().unwrap().img;
+            let staging_buf = staging.buf;
 
             let _ = vk
                 .device
-                .reset_command_buffer(vk.cmd_buf, vk::CommandBufferResetFlags::empty());
+                .reset_command_buffer(cmd_buf, vk::CommandBufferResetFlags::empty());
             let cbbi = vk::CommandBufferBeginInfo::default()
                 .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-            let _ = vk.device.begin_command_buffer(vk.cmd_buf, &cbbi);
+            let _ = vk.device.begin_command_buffer(cmd_buf, &cbbi);
 
             let range = color_subresource_range();
+            let (old_upload_layout, src_access) = if upload_was_initialized {
+                (
+                    vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                    vk::AccessFlags::TRANSFER_READ,
+                )
+            } else {
+                (vk::ImageLayout::UNDEFINED, vk::AccessFlags::empty())
+            };
             let barriers_before = [
                 image_barrier(
                     upload_img,
-                    vk::AccessFlags::empty(),
+                    src_access,
                     vk::AccessFlags::TRANSFER_WRITE,
-                    vk::ImageLayout::UNDEFINED,
+                    old_upload_layout,
                     vk::ImageLayout::TRANSFER_DST_OPTIMAL,
                     range,
                 ),
@@ -400,8 +490,8 @@ impl VkPresenter {
                 ),
             ];
             vk.device.cmd_pipeline_barrier(
-                vk.cmd_buf,
-                vk::PipelineStageFlags::TOP_OF_PIPE,
+                cmd_buf,
+                vk::PipelineStageFlags::TRANSFER,
                 vk::PipelineStageFlags::TRANSFER,
                 vk::DependencyFlags::empty(),
                 &[],
@@ -419,14 +509,18 @@ impl VkPresenter {
                     base_array_layer: 0,
                     layer_count: 1,
                 })
-                .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
+                .image_offset(vk::Offset3D {
+                    x: rect.x as i32,
+                    y: rect.y as i32,
+                    z: 0,
+                })
                 .image_extent(vk::Extent3D {
-                    width,
-                    height,
+                    width: rect.width,
+                    height: rect.height,
                     depth: 1,
                 });
             vk.device.cmd_copy_buffer_to_image(
-                vk.cmd_buf,
+                cmd_buf,
                 staging_buf,
                 upload_img,
                 vk::ImageLayout::TRANSFER_DST_OPTIMAL,
@@ -442,7 +536,7 @@ impl VkPresenter {
                 range,
             );
             vk.device.cmd_pipeline_barrier(
-                vk.cmd_buf,
+                cmd_buf,
                 vk::PipelineStageFlags::TRANSFER,
                 vk::PipelineStageFlags::TRANSFER,
                 vk::DependencyFlags::empty(),
@@ -486,7 +580,7 @@ impl VkPresenter {
                 vk::Filter::LINEAR
             };
             vk.device.cmd_blit_image(
-                vk.cmd_buf,
+                cmd_buf,
                 upload_img,
                 vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
                 swap_img,
@@ -504,7 +598,7 @@ impl VkPresenter {
                 range,
             );
             vk.device.cmd_pipeline_barrier(
-                vk.cmd_buf,
+                cmd_buf,
                 vk::PipelineStageFlags::TRANSFER,
                 vk::PipelineStageFlags::BOTTOM_OF_PIPE,
                 vk::DependencyFlags::empty(),
@@ -512,9 +606,26 @@ impl VkPresenter {
                 &[],
                 &[to_present],
             );
-            let _ = vk.device.end_command_buffer(vk.cmd_buf);
+            let _ = vk.device.end_command_buffer(cmd_buf);
 
-            submit_and_present(vk, sw.swapchain, img_idx)
+            let ok = submit_and_present(
+                &vk.device,
+                &vk.swapchain_loader,
+                vk.queue,
+                cmd_buf,
+                sem_avail,
+                sem_done,
+                fence,
+                sw.swapchain,
+                img_idx,
+            );
+            if ok {
+                if let Some(u) = vk.upload_img.as_mut() {
+                    u.initialized = true;
+                }
+                vk.frame_idx = (vk.frame_idx + 1) % FRAMES_IN_FLIGHT;
+            }
+            ok
         }
     }
 }
@@ -522,12 +633,15 @@ impl VkPresenter {
 impl Drop for VulkanContext {
     fn drop(&mut self) {
         unsafe {
-            destroy_surface(self);
-            destroy_upload_resources(self);
             let _ = self.device.device_wait_idle();
-            self.device.destroy_fence(self.fence, None);
-            self.device.destroy_semaphore(self.sem_avail, None);
-            self.device.destroy_semaphore(self.sem_done, None);
+            destroy_surface(self);
+            destroy_upload_image(self);
+            for slot in &mut self.frames {
+                destroy_staging_buffer(&self.device, &mut slot.staging);
+                self.device.destroy_fence(slot.fence, None);
+                self.device.destroy_semaphore(slot.sem_avail, None);
+                self.device.destroy_semaphore(slot.sem_done, None);
+            }
             self.device.destroy_command_pool(self.cmd_pool, None);
             self.device.destroy_device(None);
             self.instance.destroy_instance(None);
@@ -608,19 +722,30 @@ fn init_vulkan(custom_driver_path: Option<&str>) -> Result<(VulkanContext, Strin
     let cbai = vk::CommandBufferAllocateInfo::default()
         .command_pool(cmd_pool)
         .level(vk::CommandBufferLevel::PRIMARY)
-        .command_buffer_count(1);
-    let cmd_buf = unsafe { device.allocate_command_buffers(&cbai) }
-        .map_err(|e| format!("vkAllocateCommandBuffers failed: {e:?}"))?[0];
+        .command_buffer_count(FRAMES_IN_FLIGHT as u32);
+    let cmd_bufs = unsafe { device.allocate_command_buffers(&cbai) }
+        .map_err(|e| format!("vkAllocateCommandBuffers failed: {e:?}"))?;
 
     let sci = vk::SemaphoreCreateInfo::default();
-    let sem_avail = unsafe { device.create_semaphore(&sci, None) }
-        .map_err(|e| format!("vkCreateSemaphore failed: {e:?}"))?;
-    let sem_done = unsafe { device.create_semaphore(&sci, None) }
-        .map_err(|e| format!("vkCreateSemaphore failed: {e:?}"))?;
-
     let fci = vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED);
-    let fence = unsafe { device.create_fence(&fci, None) }
-        .map_err(|e| format!("vkCreateFence failed: {e:?}"))?;
+
+    let mut frame_vec = Vec::with_capacity(FRAMES_IN_FLIGHT);
+    for cmd_buf in cmd_bufs {
+        let sem_avail = unsafe { device.create_semaphore(&sci, None) }
+            .map_err(|e| format!("vkCreateSemaphore failed: {e:?}"))?;
+        let sem_done = unsafe { device.create_semaphore(&sci, None) }
+            .map_err(|e| format!("vkCreateSemaphore failed: {e:?}"))?;
+        let fence = unsafe { device.create_fence(&fci, None) }
+            .map_err(|e| format!("vkCreateFence failed: {e:?}"))?;
+        frame_vec.push(FrameSlot {
+            cmd_buf,
+            sem_avail,
+            sem_done,
+            fence,
+            staging: None,
+        });
+    }
+    let frames: [FrameSlot; FRAMES_IN_FLIGHT] = frame_vec.try_into().ok().unwrap();
 
     let info_str = format!(
         "GPU: {} | Vulkan {}.{}.{} | Driver: {}",
@@ -648,32 +773,37 @@ fn init_vulkan(custom_driver_path: Option<&str>) -> Result<(VulkanContext, Strin
         queue,
         queue_family,
         cmd_pool,
-        cmd_buf,
-        sem_avail,
-        sem_done,
-        fence,
+        frames,
+        frame_idx: 0,
         surface: vk::SurfaceKHR::null(),
         swapchain: None,
-        upload: None,
+        upload_img: None,
     };
     Ok((ctx, info_str))
 }
 
+#[allow(clippy::too_many_arguments)]
 unsafe fn submit_and_present(
-    vk: &VulkanContext,
+    device: &ash::Device,
+    swapchain_loader: &ash::khr::swapchain::Device,
+    queue: vk::Queue,
+    cmd_buf: vk::CommandBuffer,
+    sem_avail: vk::Semaphore,
+    sem_done: vk::Semaphore,
+    fence: vk::Fence,
     swapchain: vk::SwapchainKHR,
     img_idx: u32,
 ) -> bool {
     let wait_stages = [vk::PipelineStageFlags::TRANSFER];
-    let wait_sems = [vk.sem_avail];
-    let cmd_bufs = [vk.cmd_buf];
-    let sig_sems = [vk.sem_done];
+    let wait_sems = [sem_avail];
+    let cmd_bufs = [cmd_buf];
+    let sig_sems = [sem_done];
     let si = vk::SubmitInfo::default()
         .wait_semaphores(&wait_sems)
         .wait_dst_stage_mask(&wait_stages)
         .command_buffers(&cmd_bufs)
         .signal_semaphores(&sig_sems);
-    if let Err(e) = vk.device.queue_submit(vk.queue, &[si], vk.fence) {
+    if let Err(e) = device.queue_submit(queue, &[si], fence) {
         error!("vkQueueSubmit failed: {e:?}");
         return false;
     }
@@ -684,7 +814,7 @@ unsafe fn submit_and_present(
         .wait_semaphores(&sig_sems)
         .swapchains(&swapchains)
         .image_indices(&indices);
-    match vk.swapchain_loader.queue_present(vk.queue, &pi) {
+    match swapchain_loader.queue_present(queue, &pi) {
         Ok(_) => true,
         Err(e) => {
             error!("vkQueuePresentKHR failed: {e:?}");
@@ -708,58 +838,88 @@ unsafe fn destroy_surface(vk: &mut VulkanContext) {
     }
 }
 
-unsafe fn destroy_upload_resources(vk: &mut VulkanContext) {
-    if let Some(u) = vk.upload.take() {
-        vk.device.destroy_image(u.upload_img, None);
-        vk.device.free_memory(u.upload_mem, None);
-        vk.device.destroy_buffer(u.staging_buf, None);
-        vk.device.free_memory(u.staging_mem, None);
+unsafe fn destroy_staging_buffer(device: &ash::Device, staging: &mut Option<StagingBuffer>) {
+    if let Some(s) = staging.take() {
+        if !s.mapped_ptr.is_null() {
+            device.unmap_memory(s.mem);
+        }
+        device.destroy_buffer(s.buf, None);
+        device.free_memory(s.mem, None);
     }
 }
 
-unsafe fn ensure_upload_resources(vk: &mut VulkanContext, w: u32, h: u32, fmt: vk::Format) -> bool {
-    let needed = (w as vk::DeviceSize) * (h as vk::DeviceSize) * 4;
-    if let Some(u) = vk.upload.as_ref() {
-        if u.staging_size >= needed && u.width == w && u.height == h && u.format == fmt {
+unsafe fn ensure_staging_buffer(
+    device: &ash::Device,
+    mem_props: &vk::PhysicalDeviceMemoryProperties,
+    staging: &mut Option<StagingBuffer>,
+    needed: vk::DeviceSize,
+) -> bool {
+    if let Some(s) = staging.as_ref() {
+        if s.size >= needed {
             return true;
         }
     }
-
-    let _ = vk.device.device_wait_idle();
-    destroy_upload_resources(vk);
+    destroy_staging_buffer(device, staging);
 
     let bci = vk::BufferCreateInfo::default()
         .size(needed)
         .usage(vk::BufferUsageFlags::TRANSFER_SRC)
         .sharing_mode(vk::SharingMode::EXCLUSIVE);
-    let Ok(staging_buf) = vk.device.create_buffer(&bci, None) else {
+    let Ok(buf) = device.create_buffer(&bci, None) else {
         return false;
     };
-    let breq = vk.device.get_buffer_memory_requirements(staging_buf);
+    let breq = device.get_buffer_memory_requirements(buf);
     let Some(btype) = find_mem_type(
-        &vk.mem_props,
+        mem_props,
         breq.memory_type_bits,
         vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
     ) else {
-        vk.device.destroy_buffer(staging_buf, None);
+        device.destroy_buffer(buf, None);
         return false;
     };
     let bai = vk::MemoryAllocateInfo::default()
         .allocation_size(breq.size)
         .memory_type_index(btype);
-    let Ok(staging_mem) = vk.device.allocate_memory(&bai, None) else {
-        vk.device.destroy_buffer(staging_buf, None);
+    let Ok(mem) = device.allocate_memory(&bai, None) else {
+        device.destroy_buffer(buf, None);
         return false;
     };
-    if vk
-        .device
-        .bind_buffer_memory(staging_buf, staging_mem, 0)
-        .is_err()
-    {
-        vk.device.free_memory(staging_mem, None);
-        vk.device.destroy_buffer(staging_buf, None);
+    if device.bind_buffer_memory(buf, mem, 0).is_err() {
+        device.free_memory(mem, None);
+        device.destroy_buffer(buf, None);
         return false;
     }
+    let Ok(ptr) = device.map_memory(mem, 0, needed, vk::MemoryMapFlags::empty()) else {
+        device.free_memory(mem, None);
+        device.destroy_buffer(buf, None);
+        return false;
+    };
+
+    *staging = Some(StagingBuffer {
+        buf,
+        mem,
+        size: needed,
+        mapped_ptr: ptr.cast(),
+    });
+    true
+}
+
+unsafe fn destroy_upload_image(vk: &mut VulkanContext) {
+    if let Some(u) = vk.upload_img.take() {
+        vk.device.destroy_image(u.img, None);
+        vk.device.free_memory(u.mem, None);
+    }
+}
+
+unsafe fn ensure_upload_image(vk: &mut VulkanContext, w: u32, h: u32, fmt: vk::Format) -> bool {
+    if let Some(u) = vk.upload_img.as_ref() {
+        if u.width == w && u.height == h && u.format == fmt {
+            return true;
+        }
+    }
+
+    let _ = vk.device.device_wait_idle();
+    destroy_upload_image(vk);
 
     let ici = vk::ImageCreateInfo::default()
         .image_type(vk::ImageType::TYPE_2D)
@@ -776,12 +936,10 @@ unsafe fn ensure_upload_resources(vk: &mut VulkanContext, w: u32, h: u32, fmt: v
         .usage(vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::TRANSFER_SRC)
         .sharing_mode(vk::SharingMode::EXCLUSIVE)
         .initial_layout(vk::ImageLayout::UNDEFINED);
-    let Ok(upload_img) = vk.device.create_image(&ici, None) else {
-        vk.device.free_memory(staging_mem, None);
-        vk.device.destroy_buffer(staging_buf, None);
+    let Ok(img) = vk.device.create_image(&ici, None) else {
         return false;
     };
-    let ireq = vk.device.get_image_memory_requirements(upload_img);
+    let ireq = vk.device.get_image_memory_requirements(img);
     let itype = find_mem_type(
         &vk.mem_props,
         ireq.memory_type_bits,
@@ -795,41 +953,29 @@ unsafe fn ensure_upload_resources(vk: &mut VulkanContext, w: u32, h: u32, fmt: v
         )
     });
     let Some(itype) = itype else {
-        vk.device.destroy_image(upload_img, None);
-        vk.device.free_memory(staging_mem, None);
-        vk.device.destroy_buffer(staging_buf, None);
+        vk.device.destroy_image(img, None);
         return false;
     };
     let iai = vk::MemoryAllocateInfo::default()
         .allocation_size(ireq.size)
         .memory_type_index(itype);
-    let Ok(upload_mem) = vk.device.allocate_memory(&iai, None) else {
-        vk.device.destroy_image(upload_img, None);
-        vk.device.free_memory(staging_mem, None);
-        vk.device.destroy_buffer(staging_buf, None);
+    let Ok(mem) = vk.device.allocate_memory(&iai, None) else {
+        vk.device.destroy_image(img, None);
         return false;
     };
-    if vk
-        .device
-        .bind_image_memory(upload_img, upload_mem, 0)
-        .is_err()
-    {
-        vk.device.free_memory(upload_mem, None);
-        vk.device.destroy_image(upload_img, None);
-        vk.device.free_memory(staging_mem, None);
-        vk.device.destroy_buffer(staging_buf, None);
+    if vk.device.bind_image_memory(img, mem, 0).is_err() {
+        vk.device.free_memory(mem, None);
+        vk.device.destroy_image(img, None);
         return false;
     }
 
-    vk.upload = Some(UploadResources {
-        staging_buf,
-        staging_mem,
-        staging_size: needed,
-        upload_img,
-        upload_mem,
+    vk.upload_img = Some(UploadImage {
+        img,
+        mem,
         width: w,
         height: h,
         format: fmt,
+        initialized: false,
     });
     true
 }

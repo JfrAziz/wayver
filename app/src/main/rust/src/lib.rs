@@ -1,3 +1,5 @@
+mod aaudio_sink;
+mod pulse_audio;
 mod vk_loader;
 mod vk_presenter;
 mod wl_selftest;
@@ -10,6 +12,7 @@ use jni::sys::{jboolean, jfloat, jint, jlong, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 use log::info;
 
+use crate::pulse_audio::PulseAudioServer;
 use crate::vk_presenter::VkPresenter;
 use crate::wl_server::WlCompositorServer;
 
@@ -29,6 +32,7 @@ struct NativeSession {
     window: *mut ndk_sys::ANativeWindow,
     presenter: Option<Arc<VkPresenter>>,
     server: Option<WlCompositorServer>,
+    audio: Option<PulseAudioServer>,
 }
 
 impl NativeSession {
@@ -54,6 +58,7 @@ impl NativeSession {
 
 impl Drop for NativeSession {
     fn drop(&mut self) {
+        self.audio.take();
         self.server.take();
         self.presenter.take();
         self.release_window();
@@ -78,6 +83,7 @@ pub extern "system" fn Java_dev_wayver_app_core_NativeBridge_nativeCreateSession
         window: std::ptr::null_mut(),
         presenter: None,
         server: None,
+        audio: None,
     });
     Box::into_raw(session) as jlong
 }
@@ -110,6 +116,9 @@ pub extern "system" fn Java_dev_wayver_app_core_NativeBridge_nativeInitRuntime(
         if let Ok(dir) = env.get_string(&runtime_dir) {
             let dir_str = dir.to_string_lossy();
             s.server = WlCompositorServer::start(&dir_str, presenter, 1280, 800);
+            if s.audio.is_none() {
+                s.audio = PulseAudioServer::start(&dir_str);
+            }
         }
     }
 }

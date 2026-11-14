@@ -96,9 +96,10 @@ class ProotRunner(
         env["PROOT_LOADER"] = prootLoader.absolutePath
         env["PROOT_TMP_DIR"] = tmpDir.absolutePath
 
-        // Must match the Wayland socket created by DisplayActivity's NativeBridge in xdgRuntimeDir.
+        // Must match the Wayland & PulseAudio sockets created by DisplayActivity's NativeBridge in xdgRuntimeDir.
         env["XDG_RUNTIME_DIR"] = "/tmp/xdg-runtime"
         env["WAYLAND_DISPLAY"] = "wayland-0"
+        env["PULSE_SERVER"] = "unix:/tmp/xdg-runtime/pulse-native"
 
         env["HOME"] = "/root"
         env["TERM"] = "xterm-256color"

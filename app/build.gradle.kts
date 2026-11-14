@@ -84,7 +84,7 @@ val buildRustNative =
 
         environment("CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER", clang)
         environment("CC_aarch64_linux_android", clang)
-        environment("RUSTFLAGS", "-C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-landroid")
+        environment("RUSTFLAGS", "-C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-landroid -C link-arg=-laaudio")
 
         commandLine(
             "cargo",

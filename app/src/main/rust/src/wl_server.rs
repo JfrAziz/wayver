@@ -41,7 +41,7 @@ macro_rules! delegate_noop {
     };
 }
 
-use crate::vk_presenter::VkPresenter;
+use crate::vk_presenter::{DirtyRect, VkPresenter};
 
 const MINIMAL_XKB_KEYMAP: &[u8] = b"xkb_keymap {
   xkb_keycodes \"evdev\" {
@@ -365,6 +365,7 @@ struct ShmBufferData {
 #[derive(Default)]
 struct SurfaceData {
     pending_buffer: Option<wl_buffer::WlBuffer>,
+    pending_damage: Option<DirtyRect>,
     frame_cb: Option<wl_callback::WlCallback>,
     xdg_surface: Option<xdg_surface::XdgSurface>,
     xdg_toplevel: Option<xdg_toplevel::XdgToplevel>,
@@ -374,6 +375,36 @@ struct SurfaceData {
     reconfigured: bool,
     output_entered: bool,
     buffer_scale: u32,
+}
+
+fn union_damage(cur: Option<DirtyRect>, x: i32, y: i32, w: i32, h: i32) -> Option<DirtyRect> {
+    if w <= 0 || h <= 0 {
+        return cur;
+    }
+    let rx = x.max(0) as u32;
+    let ry = y.max(0) as u32;
+    let rw = w as u32;
+    let rh = h as u32;
+    Some(match cur {
+        None => DirtyRect {
+            x: rx,
+            y: ry,
+            width: rw,
+            height: rh,
+        },
+        Some(c) => {
+            let x1 = c.x.min(rx);
+            let y1 = c.y.min(ry);
+            let x2 = c.x.saturating_add(c.width).max(rx.saturating_add(rw));
+            let y2 = c.y.saturating_add(c.height).max(ry.saturating_add(rh));
+            DirtyRect {
+                x: x1,
+                y: y1,
+                width: x2 - x1,
+                height: y2 - y1,
+            }
+        }
+    })
 }
 
 struct XdgSurfaceData {
@@ -775,6 +806,33 @@ impl Dispatch<wl_surface::WlSurface, ()> for CompositorState {
                     st.pending_buffer = buffer;
                 }
             }
+            wl_surface::Request::Damage {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                if let Some(st) = state.surfaces.get_mut(&surf_id) {
+                    let s = st.buffer_scale.max(1) as i32;
+                    st.pending_damage = union_damage(
+                        st.pending_damage,
+                        x.saturating_mul(s),
+                        y.saturating_mul(s),
+                        width.saturating_mul(s),
+                        height.saturating_mul(s),
+                    );
+                }
+            }
+            wl_surface::Request::DamageBuffer {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                if let Some(st) = state.surfaces.get_mut(&surf_id) {
+                    st.pending_damage = union_damage(st.pending_damage, x, y, width, height);
+                }
+            }
             wl_surface::Request::Frame { callback } => {
                 let cb = data_init.init(callback, ());
                 if let Some(st) = state.surfaces.get_mut(&surf_id) {
@@ -820,6 +878,7 @@ fn handle_surface_commit(state: &mut CompositorState, resource: &wl_surface::WlS
         configured,
         bscale,
         pending_buf,
+        pending_damage,
         frame_cb,
     )) = state.surfaces.get_mut(&surf_id).map(|st| {
         (
@@ -829,6 +888,7 @@ fn handle_surface_commit(state: &mut CompositorState, resource: &wl_surface::WlS
             st.configured,
             st.buffer_scale.max(1),
             st.pending_buffer.take(),
+            st.pending_damage.take(),
             st.frame_cb.take(),
         )
     })
@@ -888,9 +948,14 @@ fn handle_surface_commit(state: &mut CompositorState, resource: &wl_surface::WlS
                     let need = (bdata.stride as usize) * (bdata.height as usize);
                     if !pool.ptr.is_null() && off + need <= pool.size {
                         let pixels = unsafe { std::slice::from_raw_parts(pool.ptr.add(off), need) };
-                        state
-                            .presenter
-                            .present_pixels(pixels, w, h, bdata.stride as u32, is_bgra);
+                        state.presenter.present_pixels_damaged(
+                            pixels,
+                            w,
+                            h,
+                            bdata.stride as u32,
+                            is_bgra,
+                            pending_damage,
+                        );
                     }
                     drop(pool);
 
