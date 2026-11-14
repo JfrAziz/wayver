@@ -41,7 +41,7 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
             Intent(context, DisplayActivity::class.java).apply {
                 data = Uri.parse("wayver://container/$containerId")
                 putExtra(EXTRA_CONTAINER_ID, containerId)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             }
     }
 
@@ -86,7 +86,7 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
         sessionHandle = NativeBridge.nativeCreateSession()
         NativeBridge.nativeSetRefreshRate(sessionHandle, getDisplatRefreshRateHz())
         NativeBridge.nativeInitRuntime(sessionHandle, runtimeDirPath)
-        ContainerManager.register(containerConfig.id, this, prootRunner)
+        ContainerManager.register(containerConfig, this, prootRunner)
 
         val (nativeW, nativeH) = nativeDisplaySize()
         val resConfig = containerConfig.resolution
@@ -184,8 +184,7 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
                             startActivity(createIntent(this@DisplayActivity, target.id))
                         },
                         onStopContainer = {
-                            prootRunner.stop()
-                            finishAndRemoveTask()
+                            ContainerManager.stopContainer(containerConfig.id)
                         },
                         onRefreshStatus = {
                             quickMenuState.themeMode = ThemeMode.fromId(AppPrefs(this@DisplayActivity).themeMode)

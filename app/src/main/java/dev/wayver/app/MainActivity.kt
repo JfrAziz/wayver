@@ -1,10 +1,14 @@
 package dev.wayver.app
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import dev.wayver.app.container.ContainerConfig
 import dev.wayver.app.container.ContainerManager
 import dev.wayver.app.container.ContainerStore
@@ -24,6 +28,9 @@ class MainActivity : AppCompatActivity() {
     private val uiState = LauncherUiState()
 
     private var pendingImportDistro: Distro? = null
+
+    private val requestNotifications =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     private val sessionListener: () -> Unit = {
         runOnUiThread { refreshState() }
@@ -91,7 +98,17 @@ class MainActivity : AppCompatActivity() {
         }
 
         ContainerManager.addListener(sessionListener)
+        requestNotificationPermissionIfNeeded()
         refreshState()
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
     override fun onResume() {

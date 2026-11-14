@@ -8,6 +8,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 object ContainerManager {
     private data class ActiveEntry(
+        val config: ContainerConfig,
         val activityRef: WeakReference<DisplayActivity>,
         val runner: ProotRunner
     )
@@ -15,13 +16,26 @@ object ContainerManager {
     private val active = ConcurrentHashMap<String, ActiveEntry>()
     private val listeners = CopyOnWriteArrayList<() -> Unit>()
 
-    fun register(containerId: String, activity: DisplayActivity, runner: ProotRunner) {
-        active[containerId] = ActiveEntry(WeakReference(activity), runner)
+    fun register(config: ContainerConfig, activity: DisplayActivity, runner: ProotRunner) {
+        val previous = active.put(config.id, ActiveEntry(config, WeakReference(activity), runner))
+
+        if (previous != null && previous.activityRef.get() !== activity) {
+            previous.runner.stop()
+
+            previous.activityRef.get()?.let { oldAct ->
+                if (!oldAct.isFinishing && !oldAct.isDestroyed)
+                    oldAct.runOnUiThread { oldAct.finishAndRemoveTask() }
+            }
+        }
+
+        ContainerNotificationService.sync(activity.applicationContext)
+
         notifyChanged()
     }
 
     fun unregister(containerId: String, activity: DisplayActivity) {
         val current = active[containerId]
+
         if (current != null && current.activityRef.get() === activity) {
             active.remove(containerId)
             notifyChanged()
@@ -41,6 +55,12 @@ object ContainerManager {
     fun runningIds(): Set<String> {
         active.keys.forEach { isRunning(it) }
         return active.keys.toSet()
+    }
+
+    fun runningContainers(): List<ContainerConfig> {
+        active.keys.forEach { isRunning(it) }
+
+        return active.values.map { it.config }
     }
 
     fun stopContainer(containerId: String) {
