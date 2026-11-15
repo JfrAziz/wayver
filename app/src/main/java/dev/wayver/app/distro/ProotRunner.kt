@@ -56,19 +56,14 @@ class ProotRunner(
     }
 
     /** Runs a blocking one-time setup command inside PRoot and returns its exit code. */
-    fun runSetup(
-        distro: Distro,
-        cmd: String,
-        envConfig: EnvConfig = EnvConfig(),
-        onOutputLine: (String) -> Unit = {}
-    ): Int {
+    fun runSetup(distro: Distro, cmd: String, envConfig: EnvConfig = EnvConfig()): Int {
         stop()
         return try {
             val pb = createProcessBuilder(distro, cmd, envConfig) ?: return -1
             logger.info("Running PRoot setup (${distro.id})")
             val proc = pb.start()
             activeProcess = proc
-            streamProcessOutput(proc, distro, onOutputLine)
+            streamProcessOutput(proc, distro)
             val code = proc.waitFor()
             activeProcess = null
             logger.info("PRoot setup (${distro.id}) exited with code $code")
@@ -144,12 +139,11 @@ class ProotRunner(
         add(cmd)
     }
 
-    private fun streamProcessOutput(proc: Process, distro: Distro, onOutputLine: ((String) -> Unit)? = null) {
+    private fun streamProcessOutput(proc: Process, distro: Distro) {
         BufferedReader(InputStreamReader(proc.inputStream)).use { reader ->
             while (true) {
                 val line = reader.readLine() ?: break
                 logger.info("[${distro.id}] $line")
-                onOutputLine?.invoke(line)
             }
         }
     }

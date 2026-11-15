@@ -107,7 +107,7 @@ class ContainerStore(context: Context) {
         val envObj = o.optJSONObject("env")
         val disabledPresets =
             buildSet {
-                val arr = envObj?.optJSONArray("disabledPresets") ?: o.optJSONArray("disabledAppEnvs")
+                val arr = envObj?.optJSONArray("disabledPresets")
                 if (arr != null) {
                     for (i in 0 until arr.length()) {
                         val item = arr.optString(i).trim()
@@ -139,7 +139,7 @@ class ContainerStore(context: Context) {
             }
         val overrides =
             buildMap {
-                val obj = envObj?.optJSONObject("overrides") ?: o.optJSONObject("customEnv")
+                val obj = envObj?.optJSONObject("overrides")
                 if (obj != null) {
                     val keys = obj.keys()
                     while (keys.hasNext()) {

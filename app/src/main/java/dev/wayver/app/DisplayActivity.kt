@@ -11,17 +11,26 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
-import android.view.View
-import android.view.WindowInsets
-import android.view.WindowInsetsController
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.ComposeView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import dev.wayver.app.container.ContainerConfig
 import dev.wayver.app.container.ContainerManager
 import dev.wayver.app.container.ContainerStore
-import dev.wayver.app.core.AppPrefs
+import dev.wayver.app.container.ResolutionPreset
 import dev.wayver.app.core.NativeBridge
 import dev.wayver.app.distro.Distro
 import dev.wayver.app.distro.DistroRegistry
@@ -29,14 +38,20 @@ import dev.wayver.app.distro.PrepareContext
 import dev.wayver.app.distro.ProotRunner
 import dev.wayver.app.distro.RootfsManager
 import dev.wayver.app.input.KeyMapper
-import dev.wayver.app.ui.QuickMenuOverlay
-import dev.wayver.app.ui.QuickMenuState
-import dev.wayver.app.ui.SetupOverlay
-import dev.wayver.app.ui.SetupStage
-import dev.wayver.app.ui.SetupUiState
-import dev.wayver.app.ui.ThemeMode
+import dev.wayver.app.ui.display.BootStage
+import dev.wayver.app.ui.display.DisplayAction
+import dev.wayver.app.ui.display.DisplayEffect
+import dev.wayver.app.ui.display.DisplayPhase
+import dev.wayver.app.ui.display.DisplayScreen
+import dev.wayver.app.ui.display.DisplayViewModel
 import dev.wayver.app.utils.ContainerLogger
-import kotlin.concurrent.thread
+import kotlin.time.Duration.Companion.milliseconds
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
     companion object {
@@ -50,176 +65,47 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
             }
     }
 
+    private val viewModel: DisplayViewModel by viewModels()
+
     private lateinit var surfaceView: SurfaceView
-    private lateinit var runtimeDirPath: String
-    private lateinit var containerStore: ContainerStore
     private lateinit var containerConfig: ContainerConfig
+    private lateinit var activeDistro: Distro
     private lateinit var rootfsManager: RootfsManager
     private lateinit var prootRunner: ProotRunner
-    private val quickMenuState = QuickMenuState()
-    private val setupState = SetupUiState()
 
-    private var sessionHandle: Long = 0L
-    private var activeDistro: Distro = DistroRegistry.alpine
-    private var surfaceW = 0
-    private var surfaceH = 0
-    private var sessionStarted = false
+    private var session: Long = 0L
+
     private val heldKeys = mutableSetOf<Int>()
+
+    private var bootJob: Job? = null
+    private var isQuickMenuOpen = false
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        containerStore = ContainerStore(this)
-
         val containerId = intent.getStringExtra(EXTRA_CONTAINER_ID) ?: intent.data?.lastPathSegment
 
-        containerConfig = containerStore.getById(containerId)
+        containerConfig = ContainerStore(this).getById(containerId)
 
         activeDistro = DistroRegistry.byId(containerConfig.distroId)
 
+        viewModel.initSession(containerConfig, activeDistro)
+
         updateTaskDescription()
 
-        val logger = ContainerLogger("Wayver") { line ->
-            runOnUiThread { quickMenuState.appendLog(line) }
-        }
+        val logger = ContainerLogger("Wayver") { line -> viewModel.appendLog(line) }
 
         rootfsManager = RootfsManager(this, logger)
-
         prootRunner = ProotRunner(this, rootfsManager, containerConfig.id, logger)
 
-        runtimeDirPath = prootRunner.xdgRuntimeDir.absolutePath
-        sessionHandle = NativeBridge.nativeCreateSession()
-        NativeBridge.nativeSetRefreshRate(sessionHandle, getDisplatRefreshRateHz())
-        NativeBridge.nativeInitRuntime(sessionHandle, runtimeDirPath)
+        session = NativeBridge.nativeCreateSession()
+        NativeBridge.nativeSetRefreshRate(session, getDisplayRefreshRateHz())
+        NativeBridge.nativeInitRuntime(session, prootRunner.xdgRuntimeDir.absolutePath)
         ContainerManager.register(containerConfig, this, prootRunner)
 
-        val (nativeW, nativeH) = nativeDisplaySize()
-        val resPreset = containerConfig.resolution
-        val isTrueNative = resPreset == dev.wayver.app.container.ResolutionPreset.NATIVE
-        val (reqW, reqH) = resPreset.resolve(nativeW, nativeH)
-        surfaceView =
-            SurfaceView(this).apply {
-                isFocusable = true
-                isFocusableInTouchMode = true
-                if (!isTrueNative && reqW > 0 && reqH > 0) {
-                    holder.setFixedSize(reqW, reqH)
-                }
-                holder.addCallback(this@DisplayActivity)
-                addOnLayoutChangeListener { v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
-                    val newW = right - left
-                    val newH = bottom - top
-                    val oldW = oldRight - oldLeft
-                    val oldH = oldBottom - oldTop
-                    if (newW <= 0 || newH <= 0 || (newW == oldW && newH == oldH)) return@addOnLayoutChangeListener
-                    if (!isTrueNative) {
-                        val (targetW, targetH) = resPreset.resolve(newW, newH)
-                        if (targetW > 0 && targetH > 0 && (targetW != surfaceW || targetH != surfaceH)) {
-                            v.post { holder.setFixedSize(targetW, targetH) }
-                        }
-                    }
-                }
-                setOnTouchListener { v, event ->
-                    v.requestFocus()
-                    val idx = event.actionIndex
-                    val id = event.getPointerId(idx)
-                    val scaleX = if (v.width > 0 && surfaceW > 0) surfaceW.toFloat() / v.width.toFloat() else 1f
-                    val scaleY = if (v.height > 0 && surfaceH > 0) surfaceH.toFloat() / v.height.toFloat() else 1f
-                    when (event.actionMasked) {
-                        MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN ->
-                            NativeBridge.nativeOnTouch(
-                                sessionHandle,
-                                0,
-                                id,
-                                event.getX(idx) * scaleX,
-                                event.getY(idx) * scaleY
-                            )
-
-                        MotionEvent.ACTION_MOVE -> {
-                            for (i in 0 until event.pointerCount) {
-                                NativeBridge.nativeOnTouch(
-                                    sessionHandle,
-                                    1,
-                                    event.getPointerId(i),
-                                    event.getX(i) * scaleX,
-                                    event.getY(i) * scaleY
-                                )
-                            }
-                        }
-
-                        MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL ->
-                            NativeBridge.nativeOnTouch(
-                                sessionHandle,
-                                2,
-                                id,
-                                event.getX(idx) * scaleX,
-                                event.getY(idx) * scaleY
-                            )
-                    }
-                    true
-                }
-            }
-
-        val themeMode = ThemeMode.fromId(AppPrefs(this).themeMode)
-        quickMenuState.themeMode = themeMode
-        setupState.themeMode = themeMode
-        val overlayView =
-            ComposeView(this).apply {
-                setContent {
-                    if (setupState.stage != SetupStage.READY) {
-                        SetupOverlay(
-                            state = setupState,
-                            container = containerConfig,
-                            distro = activeDistro,
-                            desktopName = activeDistro.desktopById(containerConfig.desktopId).name,
-                            onRetry = { bootDesktop(containerConfig.desktopId) },
-                            onCancel = {
-                                startActivity(
-                                    Intent(this@DisplayActivity, MainActivity::class.java)
-                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                )
-                                ContainerManager.stopContainer(containerConfig.id)
-                            }
-                        )
-                    } else {
-                        QuickMenuOverlay(
-                            state = quickMenuState,
-                            container = containerConfig,
-                            distro = activeDistro,
-                            onToggleKeyboard = {
-                                surfaceView.requestFocus()
-                                @Suppress("DEPRECATION")
-                                (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
-                                    .toggleSoftInput(InputMethodManager.SHOW_FORCED, 0)
-                            },
-                            onRestartSession = { bootDesktop(containerConfig.desktopId) },
-                            onMainMenu = {
-                                startActivity(
-                                    Intent(this@DisplayActivity, MainActivity::class.java)
-                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                )
-                            },
-                            onSwitchContainer = { target ->
-                                startActivity(createIntent(this@DisplayActivity, target.id))
-                            },
-                            onStopContainer = {
-                                startActivity(
-                                    Intent(this@DisplayActivity, MainActivity::class.java)
-                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                )
-                                ContainerManager.stopContainer(containerConfig.id)
-                            },
-                            onRefreshStatus = {
-                                quickMenuState.themeMode = ThemeMode.fromId(AppPrefs(this@DisplayActivity).themeMode)
-                                quickMenuState.nativeStatus = NativeBridge.nativeGetStatus(sessionHandle)
-                                quickMenuState.surfaceSize = "${surfaceW}x$surfaceH"
-                                quickMenuState.allContainers = containerStore.getAll()
-                                quickMenuState.runningIds = ContainerManager.runningIds()
-                            }
-                        )
-                    }
-                }
-            }
+        surfaceView = createSurfaceView()
+        val overlayView = createOverlayView()
 
         val root = FrameLayout(this)
         root.addView(surfaceView)
@@ -235,75 +121,195 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
         actionBar?.hide()
         enterFullscreen()
         surfaceView.requestFocus()
+
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (viewModel.uiState.value.phase is DisplayPhase.Running)
+                        viewModel.onAction(DisplayAction.OpenMainMenu)
+                    else
+                        viewModel.onAction(DisplayAction.CancelBoot)
+                }
+            }
+        )
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun createSurfaceView(): SurfaceView {
+        val (nativeW, nativeH) = nativeDisplaySize()
+        val resPreset = containerConfig.resolution
+        val isTrueNative = resPreset == ResolutionPreset.NATIVE
+        val (reqW, reqH) = resPreset.resolve(nativeW, nativeH)
+        return SurfaceView(this).apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
+            if (!isTrueNative && reqW > 0 && reqH > 0) {
+                holder.setFixedSize(reqW, reqH)
+            }
+            holder.addCallback(this@DisplayActivity)
+            addOnLayoutChangeListener { v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+                val newW = right - left
+                val newH = bottom - top
+                val oldW = oldRight - oldLeft
+                val oldH = oldBottom - oldTop
+                if (newW <= 0 || newH <= 0 || (newW == oldW && newH == oldH)) return@addOnLayoutChangeListener
+                if (!isTrueNative) {
+                    val (targetW, targetH) = resPreset.resolve(newW, newH)
+                    val frame = holder.surfaceFrame
+                    if (targetW > 0 && targetH > 0 && (targetW != frame.width() || targetH != frame.height())) {
+                        v.post { holder.setFixedSize(targetW, targetH) }
+                    }
+                }
+            }
+            setOnTouchListener { v, event ->
+                v.requestFocus()
+                val idx = event.actionIndex
+                val id = event.getPointerId(idx)
+                val frame = holder.surfaceFrame
+                val scaleX =
+                    if (v.width > 0 && frame.width() > 0) frame.width().toFloat() / v.width else 1f
+                val scaleY =
+                    if (v.height > 0 && frame.height() > 0) frame.height().toFloat() / v.height else 1f
+                val touchState =
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> 0
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> 2
+                        else -> -1
+                    }
+                if (touchState >= 0) {
+                    NativeBridge.nativeOnTouch(
+                        session,
+                        touchState,
+                        id,
+                        event.getX(idx) * scaleX,
+                        event.getY(idx) * scaleY
+                    )
+                } else if (event.actionMasked == MotionEvent.ACTION_MOVE) {
+                    for (i in 0 until event.pointerCount) {
+                        NativeBridge.nativeOnTouch(
+                            session,
+                            1,
+                            event.getPointerId(i),
+                            event.getX(i) * scaleX,
+                            event.getY(i) * scaleY
+                        )
+                    }
+                }
+                true
+            }
+        }
+    }
+
+    private fun createOverlayView(): ComposeView = ComposeView(this).apply {
+        setContent {
+            val state by viewModel.uiState.collectAsStateWithLifecycle()
+            val lifecycleOwner = LocalLifecycleOwner.current
+
+            LaunchedEffect(viewModel, lifecycleOwner) {
+                lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    viewModel.effects.collect(::handleEffect)
+                }
+            }
+
+            DisplayScreen(
+                state = state,
+                collectLogs = { viewModel.logs.collectAsStateWithLifecycle().value },
+                onAction = viewModel::onAction,
+                onMenuOpenChanged = { isQuickMenuOpen = it }
+            )
+        }
+    }
+
+    private fun handleEffect(effect: DisplayEffect) {
+        when (effect) {
+            DisplayEffect.BootDesktop -> bootDesktop(containerConfig.desktopId)
+            DisplayEffect.ToggleKeyboard -> {
+                surfaceView.requestFocus()
+                @Suppress("DEPRECATION")
+                (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+                    .toggleSoftInput(InputMethodManager.SHOW_FORCED, 0)
+            }
+
+            DisplayEffect.RefreshNativeStatus ->
+                viewModel.updateNativeStatus(NativeBridge.nativeGetStatus(session))
+
+            DisplayEffect.OpenMainMenu -> openMainMenu()
+            is DisplayEffect.SwitchContainer ->
+                startActivity(createIntent(this, effect.containerId))
+
+            DisplayEffect.StopAndExit -> {
+                openMainMenu()
+                ContainerManager.stopContainer(containerConfig.id)
+            }
+        }
+    }
+
+    private fun openMainMenu() {
+        startActivity(
+            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
     }
 
     private fun bootDesktop(desktopId: String) {
         val spec = activeDistro.desktopById(desktopId)
-        val installed = rootfsManager.isContainerInstalled(containerConfig.id, activeDistro)
-        val prepared = rootfsManager.isDesktopPrepared(containerConfig.id, spec.id)
+        viewModel.startBoot("Checking ${spec.name}...")
 
-        runOnUiThread {
-            if (!installed) {
-                setupState.reset(SetupStage.EXTRACTING, "Extracting ${activeDistro.name} rootfs...")
-            } else if (!prepared) {
-                setupState.reset(SetupStage.PREPARING, "Preparing ${spec.name}...")
-            } else {
-                setupState.reset(SetupStage.LAUNCHING, "Starting ${spec.name}...")
-            }
-        }
-
-        thread(name = "boot-${containerConfig.id}") {
-            if (!rootfsManager.ensureContainerReady(containerConfig.id, activeDistro)) {
-                runOnUiThread {
-                    setupState.stage = SetupStage.FAILED
-                    setupState.errorText =
-                        "Failed to prepare ${activeDistro.name} rootfs. Download the image first."
-                }
-                return@thread
-            }
-
-            if (!rootfsManager.isDesktopPrepared(containerConfig.id, spec.id)) {
-                runOnUiThread {
-                    setupState.stage = SetupStage.PREPARING
-                    setupState.statusText = "Installing ${spec.name}..."
-                }
-                val prepareCtx =
-                    PrepareContext(
-                        context = this,
-                        rootfsDir = rootfsManager.rootfsDir(containerConfig.id),
-                        runInProot = { cmd ->
-                            prootRunner.runSetup(activeDistro, cmd, containerConfig.env) { line ->
-                                runOnUiThread { setupState.updateFromOutput(line) }
-                            }
-                        }
-                    )
-                if (!spec.prepare(prepareCtx)) {
-                    runOnUiThread {
-                        setupState.stage = SetupStage.FAILED
-                        setupState.errorText = "Setup failed for ${spec.name}. Check logs and retry."
+        val prev = bootJob
+        prev?.cancel()
+        prootRunner.stop()
+        bootJob =
+            lifecycleScope.launch(Dispatchers.IO) {
+                prev?.cancelAndJoin()
+                try {
+                    if (!rootfsManager.isContainerInstalled(containerConfig.id, activeDistro)) {
+                        viewModel.updateBootStage(
+                            BootStage.Extracting,
+                            "Extracting ${activeDistro.name} rootfs..."
+                        )
                     }
-                    return@thread
-                }
-                rootfsManager.markDesktopPrepared(containerConfig.id, activeDistro.id, spec.id)
-            }
+                    if (!rootfsManager.ensureContainerReady(containerConfig.id, activeDistro)) {
+                        viewModel.failBoot(
+                            "Failed to prepare ${activeDistro.name} rootfs. Download the image first."
+                        )
+                        return@launch
+                    }
 
-            runOnUiThread {
-                setupState.stage = SetupStage.LAUNCHING
-                setupState.progress = null
-                setupState.statusText = "Starting ${spec.name}..."
-            }
-            prootRunner.runCommand(
-                cmd = spec.launch,
-                distro = activeDistro,
-                envConfig = containerConfig.env
-            )
-            Thread.sleep(1500)
-            runOnUiThread {
-                if (setupState.stage == SetupStage.LAUNCHING) {
-                    setupState.stage = SetupStage.READY
+                    if (!rootfsManager.isDesktopPrepared(containerConfig.id, spec.id)) {
+                        viewModel.updateBootStage(BootStage.Preparing, "Installing ${spec.name}...")
+                        val prepareCtx =
+                            PrepareContext(
+                                context = this@DisplayActivity,
+                                rootfsDir = rootfsManager.rootfsDir(containerConfig.id),
+                                runInProot = { cmd ->
+                                    prootRunner.runSetup(activeDistro, cmd, containerConfig.env)
+                                }
+                            )
+                        if (!spec.prepare(prepareCtx)) {
+                            viewModel.failBoot("Setup failed for ${spec.name}. Check logs and retry.")
+                            return@launch
+                        }
+                        rootfsManager.markDesktopPrepared(containerConfig.id, activeDistro.id, spec.id)
+                    }
+
+                    viewModel.updateBootStage(
+                        stage = BootStage.Launching,
+                        statusText = "Starting ${spec.name}...",
+                        clearProgress = true
+                    )
+                    prootRunner.runCommand(
+                        cmd = spec.launch,
+                        distro = activeDistro,
+                        envConfig = containerConfig.env
+                    )
+                    delay(1500.milliseconds)
+                    viewModel.markRunningIfLaunching(NativeBridge.nativeGetStatus(session))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    viewModel.failBoot(e.message ?: "Boot failed unexpectedly.")
                 }
             }
-        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -311,34 +317,22 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
         if (hasFocus) {
             enterFullscreen()
         } else {
-            for (key in heldKeys.toList()) NativeBridge.nativeOnKey(sessionHandle, key, false, 0)
+            for (key in heldKeys.toList()) NativeBridge.nativeOnKey(session, key, false, 0)
             heldKeys.clear()
         }
     }
 
     private fun enterFullscreen() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.setDecorFitsSystemWindows(false)
-            window.insetsController?.let { ctrl ->
-                ctrl.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
-                ctrl.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            }
-        } else {
-            @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility = (
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                    or View.SYSTEM_UI_FLAG_FULLSCREEN
-                    or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                    or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                    or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                    or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                )
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
     }
 
     override fun onResume() {
         super.onResume()
-        quickMenuState.themeMode = ThemeMode.fromId(AppPrefs(this).themeMode)
+        viewModel.refreshTheme()
         updateTaskDescription()
     }
 
@@ -361,6 +355,9 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (viewModel.uiState.value.phase !is DisplayPhase.Running || isQuickMenuOpen)
+            return super.dispatchKeyEvent(event)
+
         @Suppress("DEPRECATION")
         if (event.action == KeyEvent.ACTION_MULTIPLE && event.characters != null) {
             @Suppress("DEPRECATION")
@@ -368,8 +365,8 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 val mapped = KeyMapper.fromChar(ch)
                 if (mapped != null) {
                     val mods = if (mapped.shift) 1 else 0
-                    NativeBridge.nativeOnKey(sessionHandle, mapped.code, true, mods)
-                    NativeBridge.nativeOnKey(sessionHandle, mapped.code, false, 0)
+                    NativeBridge.nativeOnKey(session, mapped.code, true, mods)
+                    NativeBridge.nativeOnKey(session, mapped.code, false, 0)
                 }
             }
             return true
@@ -382,7 +379,7 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
             val pressed = event.action == KeyEvent.ACTION_DOWN
             if (pressed) heldKeys.add(evdev) else heldKeys.remove(evdev)
             NativeBridge.nativeOnKey(
-                sessionHandle,
+                session,
                 evdev,
                 pressed,
                 KeyMapper.modifiers(event)
@@ -393,23 +390,19 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
-        NativeBridge.nativeOnSurfaceCreated(sessionHandle, holder.surface)
+        NativeBridge.nativeOnSurfaceCreated(session, holder.surface)
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-        surfaceW = width
-        surfaceH = height
-        quickMenuState.surfaceSize = "${width}x$height"
-        NativeBridge.nativeOnSurfaceChanged(sessionHandle, width, height)
+        viewModel.updateSurfaceSize("${width}x$height")
+        NativeBridge.nativeOnSurfaceChanged(session, width, height)
 
-        if (!sessionStarted) {
-            sessionStarted = true
-            quickMenuState.nativeStatus = NativeBridge.nativeGetStatus(sessionHandle)
+        if (bootJob == null) {
             bootDesktop(containerConfig.desktopId)
         }
     }
 
-    private fun getDisplatRefreshRateHz(): Float {
+    private fun getDisplayRefreshRateHz(): Float {
         val hz =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 display?.refreshRate
@@ -430,15 +423,17 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        NativeBridge.nativeOnSurfaceDestroyed(sessionHandle)
+        NativeBridge.nativeOnSurfaceDestroyed(session)
     }
 
     override fun onDestroy() {
-        ContainerManager.unregister(containerConfig.id, this)
-        prootRunner.stop()
-        if (sessionHandle != 0L) {
-            NativeBridge.nativeDestroySession(sessionHandle)
-            sessionHandle = 0L
+        if (!isChangingConfigurations) {
+            ContainerManager.unregister(containerConfig.id, this)
+            prootRunner.stop()
+            if (session != 0L) {
+                NativeBridge.nativeDestroySession(session)
+                session = 0L
+            }
         }
         super.onDestroy()
     }

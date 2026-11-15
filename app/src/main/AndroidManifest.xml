@@ -24,7 +24,7 @@
         </activity>
         <activity
             android:name=".DisplayActivity"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode|density|fontScale|locale|layoutDirection"
             android:documentLaunchMode="intoExisting"
             android:exported="false" />
         <service
