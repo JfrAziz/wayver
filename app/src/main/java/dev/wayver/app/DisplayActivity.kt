@@ -46,7 +46,7 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
             Intent(context, DisplayActivity::class.java).apply {
                 data = Uri.parse("wayver://container/$containerId")
                 putExtra(EXTRA_CONTAINER_ID, containerId)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_NEW_TASK)
             }
     }
 
