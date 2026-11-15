@@ -42,6 +42,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -98,8 +99,7 @@ fun LauncherScreen(
     onStopContainer: (ContainerConfig) -> Unit,
     onSaveContainer: (ContainerConfig) -> Unit,
     onDeleteContainer: (ContainerConfig) -> Unit,
-    onDownloadImage: (Distro) -> Unit,
-    onImportImage: (Distro) -> Unit
+    onDownloadImage: (Distro) -> Unit
 ) {
     WayverTheme(themeMode = state.themeMode) {
         Scaffold(
@@ -223,8 +223,7 @@ fun LauncherScreen(
                             distro = distro,
                             isCached = state.cachedDistros.contains(distro.id),
                             downloadStatus = state.downloadProgress[distro.id],
-                            onDownload = { onDownloadImage(distro) },
-                            onImport = { onImportImage(distro) }
+                            onDownload = { onDownloadImage(distro) }
                         )
                     }
                 }
@@ -423,110 +422,94 @@ private fun ContainerCard(
 }
 
 @Composable
-private fun DistroImageCard(
-    distro: Distro,
-    isCached: Boolean,
-    downloadStatus: String?,
-    onDownload: () -> Unit,
-    onImport: () -> Unit
-) {
+private fun DistroImageCard(distro: Distro, isCached: Boolean, downloadStatus: String?, onDownload: () -> Unit) {
+    val borderColor =
+        when {
+            downloadStatus != null -> AppColors.Primary.copy(alpha = 0.4f)
+            isCached -> AppColors.Success.copy(alpha = 0.35f)
+            else -> AppColors.Border
+        }
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         color = AppColors.Surface,
-        border = BorderStroke(1.dp, AppColors.Border)
+        border = BorderStroke(1.dp, borderColor)
     ) {
-        Column(
+        Row(
             modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Image(
-                    painter = painterResource(distro.iconRes),
-                    contentDescription = distro.name,
-                    modifier = Modifier.size(32.dp)
+            Image(
+                painter = painterResource(distro.iconRes),
+                contentDescription = distro.name,
+                modifier = Modifier.size(32.dp)
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = distro.name,
+                    color = AppColors.TextPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = distro.name,
-                        color = AppColors.TextPrimary,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    val subtitle =
-                        when {
-                            downloadStatus != null -> downloadStatus
-                            isCached -> "Cached"
-                            distro.rootfsUrl != null -> "Not downloaded"
-                            else -> "Import .tar.gz"
-                        }
-                    Text(
-                        text = subtitle,
-                        color =
-                        when {
-                            downloadStatus != null -> AppColors.Primary
-                            isCached -> AppColors.Success
-                            else -> AppColors.TextMuted
-                        },
-                        fontSize = 11.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+                val subtitle =
+                    when {
+                        downloadStatus != null -> downloadStatus
+                        isCached -> "Cached"
+                        else -> "Not downloaded"
+                    }
+                Text(
+                    text = subtitle,
+                    color =
+                    when {
+                        downloadStatus != null -> AppColors.Primary
+                        isCached -> AppColors.Success
+                        else -> AppColors.TextMuted
+                    },
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                if (distro.rootfsUrl != null && downloadStatus == null) {
-                    if (!isCached) {
-                        Button(
-                            onClick = onDownload,
-                            shape = RoundedCornerShape(8.dp),
-                            colors =
-                            ButtonDefaults.buttonColors(
-                                containerColor = AppColors.Primary,
-                                contentColor = AppColors.OnPrimary
-                            ),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                            modifier = Modifier.weight(1f).height(30.dp)
-                        ) {
-                            Icon(Icons.Rounded.Download, null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Download", fontSize = 11.sp)
-                        }
-                    } else {
-                        OutlinedButton(
-                            onClick = onDownload,
-                            shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, AppColors.BorderBright),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                            modifier = Modifier.weight(1f).height(30.dp)
-                        ) {
+            when {
+                downloadStatus != null -> {
+                    Box(modifier = Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = AppColors.Primary
+                        )
+                    }
+                }
+                distro.rootfsUrl != null && !isCached -> {
+                    Surface(
+                        onClick = onDownload,
+                        shape = RoundedCornerShape(8.dp),
+                        color = AppColors.Primary.copy(alpha = 0.14f),
+                        border = BorderStroke(1.dp, AppColors.Primary.copy(alpha = 0.35f)),
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
                             Icon(
-                                Icons.Rounded.Refresh,
-                                null,
-                                modifier = Modifier.size(14.dp),
-                                tint = AppColors.TextPrimary
+                                Icons.Rounded.Download,
+                                contentDescription = "Download",
+                                tint = AppColors.Primary,
+                                modifier = Modifier.size(16.dp)
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Redownload", color = AppColors.TextPrimary, fontSize = 11.sp, maxLines = 1)
                         }
                     }
                 }
-                OutlinedButton(
-                    onClick = onImport,
-                    shape = RoundedCornerShape(8.dp),
-                    border = BorderStroke(1.dp, AppColors.BorderBright),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    modifier = Modifier.weight(1f).height(30.dp)
-                ) {
-                    Text("Import", color = AppColors.TextPrimary, fontSize = 11.sp)
+                distro.rootfsUrl != null -> {
+                    IconButton(onClick = onDownload, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            Icons.Rounded.Refresh,
+                            contentDescription = "Redownload",
+                            tint = AppColors.TextMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
         }

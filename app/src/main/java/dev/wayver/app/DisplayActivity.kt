@@ -262,7 +262,7 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 runOnUiThread {
                     setupState.stage = SetupStage.FAILED
                     setupState.errorText =
-                        "Failed to prepare ${activeDistro.name} rootfs. Download or import the image first."
+                        "Failed to prepare ${activeDistro.name} rootfs. Download the image first."
                 }
                 return@thread
             }

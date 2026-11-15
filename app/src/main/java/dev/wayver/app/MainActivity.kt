@@ -27,33 +27,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var appPrefs: AppPrefs
     private val uiState = LauncherUiState()
 
-    private var pendingImportDistro: Distro? = null
-
     private val requestNotifications =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     private val sessionListener: () -> Unit = {
         runOnUiThread { refreshState() }
     }
-
-    private val pickImageTarball =
-        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-            val target = pendingImportDistro ?: return@registerForActivityResult
-            if (uri == null) return@registerForActivityResult
-            toast("Caching ${target.name} image...")
-            thread(name = "import-image-${target.id}") {
-                val ok =
-                    runCatching {
-                        contentResolver.openInputStream(uri)?.use { stream ->
-                            rootfsManager.importImage(target, stream)
-                        } ?: false
-                    }.getOrDefault(false)
-                runOnUiThread {
-                    toast(if (ok) "Cached ${target.name} image" else "Image import failed for ${target.name}")
-                    refreshState()
-                }
-            }
-        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -89,13 +68,7 @@ class MainActivity : AppCompatActivity() {
                         rootfsManager.deleteContainer(container.id)
                     }
                 },
-                onDownloadImage = ::startImageDownload,
-                onImportImage = { distro ->
-                    pendingImportDistro = distro
-                    pickImageTarball.launch(
-                        arrayOf("application/gzip", "application/x-gzip", "application/x-tar", "*/*")
-                    )
-                }
+                onDownloadImage = ::startImageDownload
             )
         }
 
@@ -139,7 +112,7 @@ class MainActivity : AppCompatActivity() {
         val distro = DistroRegistry.byId(container.distroId)
         val canBoot = rootfsManager.isContainerInstalled(container.id, distro) || rootfsManager.hasImage(distro)
         if (!canBoot) {
-            toast("Download or import a ${distro.name} image first")
+            toast("Download a ${distro.name} image first")
             return
         }
         startActivity(DisplayActivity.createIntent(this, container.id))

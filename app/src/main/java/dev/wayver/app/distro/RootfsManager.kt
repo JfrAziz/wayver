@@ -6,7 +6,6 @@ import dev.wayver.app.utils.HttpDownloader
 import dev.wayver.app.utils.TarExtractor
 import java.io.File
 import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.io.InputStream
 
 /**
@@ -75,25 +74,8 @@ class RootfsManager(
             }
         }
 
-        logger.error("ERROR: ${distro.name} image not found. Download or Import Image first.")
+        logger.error("ERROR: ${distro.name} image not found. Download the image first.")
         return false
-    }
-
-    fun importImage(distro: Distro, rawStream: InputStream): Boolean {
-        val target = imageFile(distro)
-        val part = File(imagesRoot, "${distro.id}.tar.gz.part")
-        part.delete()
-        return try {
-            rawStream.use { input ->
-                FileOutputStream(part).use { output ->
-                    input.copyTo(output, 65536)
-                }
-            }
-            if (target.exists()) target.delete()
-            part.renameTo(target)
-        } finally {
-            part.delete()
-        }
     }
 
     fun downloadImage(distro: Distro, onProgress: (String) -> Unit): Boolean {
