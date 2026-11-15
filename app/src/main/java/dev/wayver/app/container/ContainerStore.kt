@@ -65,7 +65,7 @@ class ContainerStore(context: Context) {
         name = "Alpine + LabWC",
         distroId = appPrefs.activeDistroId,
         desktopId = "labwc",
-        resolution = ResolutionConfig.Preset(ResolutionPreset.NATIVE)
+        resolution = ResolutionPreset.NATIVE
     )
 
     private fun toJson(c: ContainerConfig): JSONObject = JSONObject().apply {
@@ -73,18 +73,7 @@ class ContainerStore(context: Context) {
         put("name", c.name)
         put("distroId", c.distroId)
         put("desktopId", c.desktopId)
-        when (val res = c.resolution) {
-            is ResolutionConfig.Preset -> {
-                put("resolutionType", "preset")
-                put("resolutionPreset", res.preset.id)
-            }
-
-            is ResolutionConfig.Custom -> {
-                put("resolutionType", "custom")
-                put("customWidth", res.width)
-                put("customHeight", res.height)
-            }
-        }
+        put("resolutionPreset", c.resolution.id)
         put(
             "env",
             JSONObject().apply {
@@ -114,18 +103,7 @@ class ContainerStore(context: Context) {
 
     private fun fromJson(o: JSONObject): ContainerConfig {
         val resolution =
-            when (o.optString("resolutionType", "preset")) {
-                "custom" ->
-                    ResolutionConfig.Custom(
-                        width = o.optInt("customWidth", 1600).coerceIn(320, 4096),
-                        height = o.optInt("customHeight", 1000).coerceIn(240, 4096)
-                    )
-
-                else ->
-                    ResolutionConfig.Preset(
-                        ResolutionPreset.fromId(o.optString("resolutionPreset", ResolutionPreset.NATIVE.id))
-                    )
-            }
+            ResolutionPreset.fromId(o.optString("resolutionPreset", ResolutionPreset.NATIVE.id))
         val envObj = o.optJSONObject("env")
         val disabledPresets =
             buildSet {

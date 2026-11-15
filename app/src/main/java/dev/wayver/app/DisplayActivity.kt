@@ -95,11 +95,9 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
         ContainerManager.register(containerConfig, this, prootRunner)
 
         val (nativeW, nativeH) = nativeDisplaySize()
-        val resConfig = containerConfig.resolution
-        val isTrueNative =
-            resConfig is dev.wayver.app.container.ResolutionConfig.Preset &&
-                resConfig.preset == dev.wayver.app.container.ResolutionPreset.NATIVE
-        val (reqW, reqH) = resConfig.resolve(nativeW, nativeH)
+        val resPreset = containerConfig.resolution
+        val isTrueNative = resPreset == dev.wayver.app.container.ResolutionPreset.NATIVE
+        val (reqW, reqH) = resPreset.resolve(nativeW, nativeH)
         surfaceView =
             SurfaceView(this).apply {
                 isFocusable = true
@@ -114,11 +112,8 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     val oldW = oldRight - oldLeft
                     val oldH = oldBottom - oldTop
                     if (newW <= 0 || newH <= 0 || (newW == oldW && newH == oldH)) return@addOnLayoutChangeListener
-                    val res = containerConfig.resolution
-                    if (res is dev.wayver.app.container.ResolutionConfig.Preset &&
-                        res.preset.nativeScale != null && res.preset.nativeScale != 1.0f
-                    ) {
-                        val (targetW, targetH) = res.resolve(newW, newH)
+                    if (!isTrueNative) {
+                        val (targetW, targetH) = resPreset.resolve(newW, newH)
                         if (targetW > 0 && targetH > 0 && (targetW != surfaceW || targetH != surfaceH)) {
                             v.post { holder.setFixedSize(targetW, targetH) }
                         }

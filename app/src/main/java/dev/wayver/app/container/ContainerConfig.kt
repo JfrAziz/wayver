@@ -2,27 +2,17 @@ package dev.wayver.app.container
 
 import kotlin.math.roundToInt
 
-enum class ResolutionPreset(
-    val id: String,
-    val label: String,
-    val nativeScale: Float? = null,
-    val fixedWidth: Int = 0,
-    val fixedHeight: Int = 0
-) {
-    NATIVE("native", "Native (1x)", nativeScale = 1.0f),
-    NATIVE_0_5("native_0_5", "Native @ 0.5x", nativeScale = 0.5f),
-    NATIVE_0_75("native_0_75", "Native @ 0.75x", nativeScale = 0.75f),
-    NATIVE_1_25("native_1_25", "Native @ 1.25x", nativeScale = 1.25f),
-    NATIVE_1_5("native_1_5", "Native @ 1.50x", nativeScale = 1.5f),
-    NATIVE_1_75("native_1_75", "Native @ 1.75x", nativeScale = 1.75f),
-    NATIVE_2("native_2", "Native @ 2x", nativeScale = 2.0f),
-    FHD("1080p", "FHD (1920 x 1080)", fixedWidth = 1920, fixedHeight = 1080),
-    WXGA("800p", "WXGA (1280 x 800)", fixedWidth = 1280, fixedHeight = 800),
-    HD("720p", "HD (1280 x 720)", fixedWidth = 1280, fixedHeight = 720)
+enum class ResolutionPreset(val id: String, val label: String, val scale: Float) {
+    NATIVE("native", "Native (1x)", 1.0f),
+    NATIVE_0_5("native_0_5", "Native @ 0.5x", 0.5f),
+    NATIVE_0_75("native_0_75", "Native @ 0.75x", 0.75f),
+    NATIVE_1_25("native_1_25", "Native @ 1.25x", 1.25f),
+    NATIVE_1_5("native_1_5", "Native @ 1.50x", 1.5f),
+    NATIVE_1_75("native_1_75", "Native @ 1.75x", 1.75f),
+    NATIVE_2("native_2", "Native @ 2x", 2.0f)
     ;
 
     fun resolve(nativeW: Int, nativeH: Int): Pair<Int, Int> {
-        val scale = nativeScale ?: return fixedWidth to fixedHeight
         if (nativeW <= 0 || nativeH <= 0) return 0 to 0
         // Divide native resolution by UI scale and round to even dimensions for swapchain alignment.
         val w = (((nativeW / scale).roundToInt() / 2) * 2).coerceIn(320, 4096)
@@ -32,26 +22,6 @@ enum class ResolutionPreset(
 
     companion object {
         fun fromId(id: String?): ResolutionPreset = entries.firstOrNull { it.id == id } ?: NATIVE
-    }
-}
-
-/**
- * Discriminated union for container display resolution.
- * Wayland output scale is always 1; presets and custom entries control the virtual display size directly.
- */
-sealed interface ResolutionConfig {
-    data class Preset(val preset: ResolutionPreset) : ResolutionConfig
-
-    data class Custom(val width: Int, val height: Int) : ResolutionConfig
-
-    fun resolve(nativeW: Int, nativeH: Int): Pair<Int, Int> = when (this) {
-        is Preset -> preset.resolve(nativeW, nativeH)
-        is Custom -> width.coerceIn(320, 4096) to height.coerceIn(240, 4096)
-    }
-
-    fun label(): String = when (this) {
-        is Preset -> preset.label
-        is Custom -> "${width}x$height"
     }
 }
 
@@ -84,5 +54,5 @@ data class ContainerConfig(
     val distroId: String,
     val desktopId: String = "labwc",
     val env: EnvConfig = EnvConfig(),
-    val resolution: ResolutionConfig = ResolutionConfig.Preset(ResolutionPreset.NATIVE)
+    val resolution: ResolutionPreset = ResolutionPreset.NATIVE
 )
