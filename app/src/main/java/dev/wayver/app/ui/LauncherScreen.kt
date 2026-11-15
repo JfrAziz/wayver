@@ -85,6 +85,7 @@ class LauncherUiState {
     val downloadProgress = mutableStateMapOf<String, String>()
     var editingContainer by mutableStateOf<ContainerConfig?>(null)
     var showCreateDialog by mutableStateOf(false)
+    var deletingContainer by mutableStateOf<ContainerConfig?>(null)
     var themeMode by mutableStateOf(ThemeMode.AUTO)
 }
 
@@ -189,7 +190,7 @@ fun LauncherScreen(
                                 state.editingContainer = container
                                 state.showCreateDialog = true
                             },
-                            onDelete = { onDeleteContainer(container) }
+                            onDelete = { state.deletingContainer = container }
                         )
                     }
                 }
@@ -218,6 +219,17 @@ fun LauncherScreen(
                 onSave = { updated ->
                     state.showCreateDialog = false
                     onSaveContainer(updated)
+                }
+            )
+        }
+
+        state.deletingContainer?.let { target ->
+            DeleteContainerDialog(
+                container = target,
+                onDismiss = { state.deletingContainer = null },
+                onConfirm = {
+                    state.deletingContainer = null
+                    onDeleteContainer(target)
                 }
             )
         }
@@ -848,6 +860,47 @@ private fun ContainerEditorDialog(
                 )
             ) {
                 Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = AppColors.TextMuted)
+            }
+        }
+    )
+}
+
+@Composable
+private fun DeleteContainerDialog(container: ContainerConfig, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = AppColors.SurfaceElevated,
+        title = {
+            Text(
+                text = "Delete Container",
+                color = AppColors.TextPrimary,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        },
+        text = {
+            Text(
+                text = "Delete \"${container.name}\"? This will permanently remove its rootfs and all files inside it.",
+                color = AppColors.TextMuted,
+                fontSize = 13.sp
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors =
+                ButtonDefaults.buttonColors(
+                    containerColor = AppColors.DangerSoft,
+                    contentColor = AppColors.Danger
+                ),
+                border = BorderStroke(1.dp, AppColors.Danger.copy(alpha = 0.45f))
+            ) {
+                Text("Delete")
             }
         },
         dismissButton = {
