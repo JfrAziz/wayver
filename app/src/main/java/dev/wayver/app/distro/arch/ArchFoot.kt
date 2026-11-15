@@ -18,15 +18,10 @@ object ArchFoot {
         DesktopSpec(
             id = "foot",
             name = "Foot Terminal",
-            prepare = { context, rootfsDir ->
-                AssetCopy.copyAssetTree(context, "distros/arch/foot", File(rootfsDir, "root/.config"))
+            prepare = { ctx ->
+                AssetCopy.copyAssetTree(ctx.context, "distros/arch/foot", File(ctx.rootfsDir, "root/.config"))
+                ctx.runInProot("$pacmanPrep && pacman -Syu --noconfirm --needed foot ttf-dejavu") == 0
             },
-            launch =
-            """
-                if [ ! -x /usr/bin/foot ]; then
-                    $pacmanPrep && pacman -Syu --noconfirm --needed foot ttf-dejavu
-                fi
-                exec foot
-            """.trimIndent()
+            launch = "exec foot"
         )
 }

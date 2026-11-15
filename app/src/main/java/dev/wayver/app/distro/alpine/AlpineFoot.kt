@@ -9,9 +9,10 @@ object AlpineFoot {
         DesktopSpec(
             id = "foot",
             name = "Foot Terminal",
-            prepare = { context, rootfsDir ->
-                AssetCopy.copyAssetTree(context, "distros/alpine/foot", File(rootfsDir, "root/.config"))
+            prepare = { ctx ->
+                AssetCopy.copyAssetTree(ctx.context, "distros/alpine/foot", File(ctx.rootfsDir, "root/.config"))
+                ctx.runInProot("apk update && apk add --no-cache foot font-dejavu") == 0
             },
-            launch = "[ -x /usr/bin/foot ] || (apk update && apk add --no-cache foot font-dejavu); exec foot"
+            launch = "exec foot"
         )
 }

@@ -11,11 +11,12 @@ object DebianFoot {
         DesktopSpec(
             id = "foot",
             name = "Foot Terminal",
-            prepare = { context, rootfsDir ->
-                AssetCopy.copyAssetTree(context, "distros/debian/foot", File(rootfsDir, "root/.config"))
+            prepare = { ctx ->
+                AssetCopy.copyAssetTree(ctx.context, "distros/debian/foot", File(ctx.rootfsDir, "root/.config"))
+                ctx.runInProot(
+                    "$aptPrefix update && $aptPrefix install -y --no-install-recommends foot fonts-dejavu-core"
+                ) == 0
             },
-            launch =
-            "[ -x /usr/bin/foot ] || ($aptPrefix update && " +
-                "$aptPrefix install -y --no-install-recommends foot fonts-dejavu-core); exec foot"
+            launch = "exec foot"
         )
 }

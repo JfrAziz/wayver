@@ -25,17 +25,15 @@ object ArchSway {
         DesktopSpec(
             id = "sway",
             name = "Sway",
-            prepare = { context, rootfsDir ->
-                val cfgRoot = File(rootfsDir, "root/.config")
-                AssetCopy.copyAssetTree(context, "distros/arch/labwc", cfgRoot)
-                AssetCopy.copyAssetTree(context, "distros/arch/sway", cfgRoot)
-                AssetCopy.copyAssetFileIfMissing(context, "wallpaper.jpg", File(cfgRoot, "sway/wallpaper.jpg"))
+            prepare = { ctx ->
+                val cfgRoot = File(ctx.rootfsDir, "root/.config")
+                AssetCopy.copyAssetTree(ctx.context, "distros/arch/labwc", cfgRoot)
+                AssetCopy.copyAssetTree(ctx.context, "distros/arch/sway", cfgRoot)
+                AssetCopy.copyAssetFileIfMissing(ctx.context, "wallpaper.jpg", File(cfgRoot, "sway/wallpaper.jpg"))
+                ctx.runInProot("$pacmanPrep && pacman -Syu --noconfirm --needed $packages") == 0
             },
             launch =
             """
-                if [ ! -x /usr/bin/sway ] || [ ! -x /usr/bin/autotiling ] || [ ! -x /usr/bin/fuzzel ] || [ ! -x /usr/bin/waybar ] || [ ! -x /usr/bin/swaybg ] || [ ! -x /usr/bin/dbus-run-session ] || [ ! -x /usr/bin/pactl ]; then
-                    $pacmanPrep && pacman -Syu --noconfirm --needed $packages
-                fi
                 export XDG_CONFIG_HOME=/root/.config
                 export WLR_BACKENDS=wayland
                 export WLR_RENDERER=pixman

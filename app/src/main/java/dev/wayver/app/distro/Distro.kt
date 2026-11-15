@@ -3,11 +3,17 @@ package dev.wayver.app.distro
 import android.content.Context
 import java.io.File
 
+data class PrepareContext(
+    val context: Context,
+    val rootfsDir: File,
+    val runInProot: (cmd: String) -> Int
+)
+
 data class DesktopSpec(
     val id: String,
     val name: String,
     val launch: String,
-    val prepare: (context: Context, rootfsDir: File) -> Unit = { _, _ -> }
+    val prepare: (PrepareContext) -> Boolean = { true }
 )
 
 interface Distro {

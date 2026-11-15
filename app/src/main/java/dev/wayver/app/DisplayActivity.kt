@@ -25,13 +25,18 @@ import dev.wayver.app.core.AppPrefs
 import dev.wayver.app.core.NativeBridge
 import dev.wayver.app.distro.Distro
 import dev.wayver.app.distro.DistroRegistry
+import dev.wayver.app.distro.PrepareContext
 import dev.wayver.app.distro.ProotRunner
 import dev.wayver.app.distro.RootfsManager
 import dev.wayver.app.input.KeyMapper
 import dev.wayver.app.ui.QuickMenuOverlay
 import dev.wayver.app.ui.QuickMenuState
+import dev.wayver.app.ui.SetupOverlay
+import dev.wayver.app.ui.SetupStage
+import dev.wayver.app.ui.SetupUiState
 import dev.wayver.app.ui.ThemeMode
 import dev.wayver.app.utils.ContainerLogger
+import kotlin.concurrent.thread
 
 class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
     companion object {
@@ -52,6 +57,7 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private lateinit var rootfsManager: RootfsManager
     private lateinit var prootRunner: ProotRunner
     private val quickMenuState = QuickMenuState()
+    private val setupState = SetupUiState()
 
     private var sessionHandle: Long = 0L
     private var activeDistro: Distro = DistroRegistry.alpine
@@ -159,45 +165,64 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 }
             }
 
-        quickMenuState.themeMode = ThemeMode.fromId(AppPrefs(this).themeMode)
+        val themeMode = ThemeMode.fromId(AppPrefs(this).themeMode)
+        quickMenuState.themeMode = themeMode
+        setupState.themeMode = themeMode
         val overlayView =
             ComposeView(this).apply {
                 setContent {
-                    QuickMenuOverlay(
-                        state = quickMenuState,
-                        container = containerConfig,
-                        distro = activeDistro,
-                        onToggleKeyboard = {
-                            surfaceView.requestFocus()
-                            @Suppress("DEPRECATION")
-                            (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
-                                .toggleSoftInput(InputMethodManager.SHOW_FORCED, 0)
-                        },
-                        onRestartSession = { bootDesktop(containerConfig.desktopId) },
-                        onMainMenu = {
-                            startActivity(
-                                Intent(this@DisplayActivity, MainActivity::class.java)
-                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            )
-                        },
-                        onSwitchContainer = { target ->
-                            startActivity(createIntent(this@DisplayActivity, target.id))
-                        },
-                        onStopContainer = {
-                            startActivity(
-                                Intent(this@DisplayActivity, MainActivity::class.java)
-                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            )
-                            ContainerManager.stopContainer(containerConfig.id)
-                        },
-                        onRefreshStatus = {
-                            quickMenuState.themeMode = ThemeMode.fromId(AppPrefs(this@DisplayActivity).themeMode)
-                            quickMenuState.nativeStatus = NativeBridge.nativeGetStatus(sessionHandle)
-                            quickMenuState.surfaceSize = "${surfaceW}x$surfaceH"
-                            quickMenuState.allContainers = containerStore.getAll()
-                            quickMenuState.runningIds = ContainerManager.runningIds()
-                        }
-                    )
+                    if (setupState.stage != SetupStage.READY) {
+                        SetupOverlay(
+                            state = setupState,
+                            container = containerConfig,
+                            distro = activeDistro,
+                            desktopName = activeDistro.desktopById(containerConfig.desktopId).name,
+                            onRetry = { bootDesktop(containerConfig.desktopId) },
+                            onCancel = {
+                                startActivity(
+                                    Intent(this@DisplayActivity, MainActivity::class.java)
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                                ContainerManager.stopContainer(containerConfig.id)
+                            }
+                        )
+                    } else {
+                        QuickMenuOverlay(
+                            state = quickMenuState,
+                            container = containerConfig,
+                            distro = activeDistro,
+                            onToggleKeyboard = {
+                                surfaceView.requestFocus()
+                                @Suppress("DEPRECATION")
+                                (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+                                    .toggleSoftInput(InputMethodManager.SHOW_FORCED, 0)
+                            },
+                            onRestartSession = { bootDesktop(containerConfig.desktopId) },
+                            onMainMenu = {
+                                startActivity(
+                                    Intent(this@DisplayActivity, MainActivity::class.java)
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            },
+                            onSwitchContainer = { target ->
+                                startActivity(createIntent(this@DisplayActivity, target.id))
+                            },
+                            onStopContainer = {
+                                startActivity(
+                                    Intent(this@DisplayActivity, MainActivity::class.java)
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                                ContainerManager.stopContainer(containerConfig.id)
+                            },
+                            onRefreshStatus = {
+                                quickMenuState.themeMode = ThemeMode.fromId(AppPrefs(this@DisplayActivity).themeMode)
+                                quickMenuState.nativeStatus = NativeBridge.nativeGetStatus(sessionHandle)
+                                quickMenuState.surfaceSize = "${surfaceW}x$surfaceH"
+                                quickMenuState.allContainers = containerStore.getAll()
+                                quickMenuState.runningIds = ContainerManager.runningIds()
+                            }
+                        )
+                    }
                 }
             }
 
@@ -219,12 +244,71 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     private fun bootDesktop(desktopId: String) {
         val spec = activeDistro.desktopById(desktopId)
-        spec.prepare(this, rootfsManager.rootfsDir(containerConfig.id))
-        prootRunner.runCommand(
-            cmd = spec.launch,
-            distro = activeDistro,
-            envConfig = containerConfig.env
-        )
+        val installed = rootfsManager.isContainerInstalled(containerConfig.id, activeDistro)
+        val prepared = rootfsManager.isDesktopPrepared(containerConfig.id, spec.id)
+
+        runOnUiThread {
+            if (!installed) {
+                setupState.reset(SetupStage.EXTRACTING, "Extracting ${activeDistro.name} rootfs...")
+            } else if (!prepared) {
+                setupState.reset(SetupStage.PREPARING, "Preparing ${spec.name}...")
+            } else {
+                setupState.reset(SetupStage.LAUNCHING, "Starting ${spec.name}...")
+            }
+        }
+
+        thread(name = "boot-${containerConfig.id}") {
+            if (!rootfsManager.ensureContainerReady(containerConfig.id, activeDistro)) {
+                runOnUiThread {
+                    setupState.stage = SetupStage.FAILED
+                    setupState.errorText =
+                        "Failed to prepare ${activeDistro.name} rootfs. Download or import the image first."
+                }
+                return@thread
+            }
+
+            if (!rootfsManager.isDesktopPrepared(containerConfig.id, spec.id)) {
+                runOnUiThread {
+                    setupState.stage = SetupStage.PREPARING
+                    setupState.statusText = "Installing ${spec.name}..."
+                }
+                val prepareCtx =
+                    PrepareContext(
+                        context = this,
+                        rootfsDir = rootfsManager.rootfsDir(containerConfig.id),
+                        runInProot = { cmd ->
+                            prootRunner.runSetup(activeDistro, cmd, containerConfig.env) { line ->
+                                runOnUiThread { setupState.updateFromOutput(line) }
+                            }
+                        }
+                    )
+                if (!spec.prepare(prepareCtx)) {
+                    runOnUiThread {
+                        setupState.stage = SetupStage.FAILED
+                        setupState.errorText = "Setup failed for ${spec.name}. Check logs and retry."
+                    }
+                    return@thread
+                }
+                rootfsManager.markDesktopPrepared(containerConfig.id, activeDistro.id, spec.id)
+            }
+
+            runOnUiThread {
+                setupState.stage = SetupStage.LAUNCHING
+                setupState.progress = null
+                setupState.statusText = "Starting ${spec.name}..."
+            }
+            prootRunner.runCommand(
+                cmd = spec.launch,
+                distro = activeDistro,
+                envConfig = containerConfig.env
+            )
+            Thread.sleep(1500)
+            runOnUiThread {
+                if (setupState.stage == SetupStage.LAUNCHING) {
+                    setupState.stage = SetupStage.READY
+                }
+            }
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

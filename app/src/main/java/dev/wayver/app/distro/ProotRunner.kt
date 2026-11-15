@@ -39,41 +39,7 @@ class ProotRunner(
                 if (!rootfsManager.ensureContainerReady(containerId, distro)) {
                     return@thread
                 }
-
-                // Android SELinux/W^X blocks executing binaries placed in filesDir; packaging PRoot and its
-                // loader as `lib*.so` in jniLibs lets PackageManager extract them into executable nativeLibraryDir.
-                val nativeDir = context.applicationInfo.nativeLibraryDir
-                val prootBin = File(nativeDir, "libproot.so")
-                val prootLoader = File(nativeDir, "libproot-loader.so")
-                if (!prootBin.exists() || !prootLoader.exists()) {
-                    logger.error("ERROR: libproot.so missing in $nativeDir")
-                    return@thread
-                }
-
-                val rootfsDir = rootfsManager.rootfsDir(containerId)
-                procSysBindings.prepare()
-                val args = buildProotArgs(prootBin, rootfsDir, distro, cmd)
-                val pb =
-                    ProcessBuilder(args).apply {
-                        redirectErrorStream(true)
-                        environment().apply {
-                            // PROOT_TMP_DIR is required because Android does not expose a writable /tmp for ELF staging.
-                            put("PROOT_LOADER", prootLoader.absolutePath)
-                            put("PROOT_TMP_DIR", tmpDir.absolutePath)
-
-                            // Must match the Wayland & PulseAudio sockets created by DisplayActivity in xdgRuntimeDir.
-                            put("XDG_RUNTIME_DIR", "/tmp/xdg-runtime")
-                            put("WAYLAND_DISPLAY", "wayland-0")
-                            put("PULSE_SERVER", "unix:/tmp/xdg-runtime/pulse-native")
-
-                            put("HOME", "/root")
-                            put("TERM", "xterm-256color")
-                            put("LANG", "C.UTF-8")
-                            put("PATH", distro.pathEnv)
-                            putAll(envConfig.resolve(distro.extraEnv, distro.appEnvs))
-                        }
-                    }
-
+                val pb = createProcessBuilder(distro, cmd, envConfig) ?: return@thread
                 logger.info("Starting PRoot (${distro.id}): $cmd")
                 val proc = pb.start()
                 activeProcess = proc
@@ -85,6 +51,66 @@ class ProotRunner(
                 logger.info("PRoot (${distro.id}) exited with code $code")
             } catch (t: Throwable) {
                 logger.error("PRoot error", t)
+            }
+        }
+    }
+
+    /** Runs a blocking one-time setup command inside PRoot and returns its exit code. */
+    fun runSetup(
+        distro: Distro,
+        cmd: String,
+        envConfig: EnvConfig = EnvConfig(),
+        onOutputLine: (String) -> Unit = {}
+    ): Int {
+        stop()
+        return try {
+            val pb = createProcessBuilder(distro, cmd, envConfig) ?: return -1
+            logger.info("Running PRoot setup (${distro.id})")
+            val proc = pb.start()
+            activeProcess = proc
+            streamProcessOutput(proc, distro, onOutputLine)
+            val code = proc.waitFor()
+            activeProcess = null
+            logger.info("PRoot setup (${distro.id}) exited with code $code")
+            code
+        } catch (t: Throwable) {
+            activeProcess = null
+            logger.error("PRoot setup error", t)
+            -1
+        }
+    }
+
+    private fun createProcessBuilder(distro: Distro, cmd: String, envConfig: EnvConfig): ProcessBuilder? {
+        // Android SELinux/W^X blocks executing binaries placed in filesDir; packaging PRoot and its
+        // loader as `lib*.so` in jniLibs lets PackageManager extract them into executable nativeLibraryDir.
+        val nativeDir = context.applicationInfo.nativeLibraryDir
+        val prootBin = File(nativeDir, "libproot.so")
+        val prootLoader = File(nativeDir, "libproot-loader.so")
+        if (!prootBin.exists() || !prootLoader.exists()) {
+            logger.error("ERROR: libproot.so missing in $nativeDir")
+            return null
+        }
+
+        val rootfsDir = rootfsManager.rootfsDir(containerId)
+        procSysBindings.prepare()
+        val args = buildProotArgs(prootBin, rootfsDir, distro, cmd)
+        return ProcessBuilder(args).apply {
+            redirectErrorStream(true)
+            environment().apply {
+                // PROOT_TMP_DIR is required because Android does not expose a writable /tmp for ELF staging.
+                put("PROOT_LOADER", prootLoader.absolutePath)
+                put("PROOT_TMP_DIR", tmpDir.absolutePath)
+
+                // Must match the Wayland & PulseAudio sockets created by DisplayActivity in xdgRuntimeDir.
+                put("XDG_RUNTIME_DIR", "/tmp/xdg-runtime")
+                put("WAYLAND_DISPLAY", "wayland-0")
+                put("PULSE_SERVER", "unix:/tmp/xdg-runtime/pulse-native")
+
+                put("HOME", "/root")
+                put("TERM", "xterm-256color")
+                put("LANG", "C.UTF-8")
+                put("PATH", distro.pathEnv)
+                putAll(envConfig.resolve(distro.extraEnv, distro.appEnvs))
             }
         }
     }
@@ -118,11 +144,12 @@ class ProotRunner(
         add(cmd)
     }
 
-    private fun streamProcessOutput(proc: Process, distro: Distro) {
+    private fun streamProcessOutput(proc: Process, distro: Distro, onOutputLine: ((String) -> Unit)? = null) {
         BufferedReader(InputStreamReader(proc.inputStream)).use { reader ->
             while (true) {
                 val line = reader.readLine() ?: break
                 logger.info("[${distro.id}] $line")
+                onOutputLine?.invoke(line)
             }
         }
     }

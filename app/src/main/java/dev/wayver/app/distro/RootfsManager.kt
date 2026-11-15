@@ -33,6 +33,22 @@ class RootfsManager(
         return File(dir, distro.markerRelPath).exists() || File(dir, distro.shellPath.trimStart('/')).exists()
     }
 
+    private fun setupMarkerFile(containerId: String, desktopId: String): File =
+        File(containerDir(containerId), ".setup-$desktopId.done")
+
+    fun isDesktopPrepared(containerId: String, desktopId: String): Boolean =
+        setupMarkerFile(containerId, desktopId).exists()
+
+    fun markDesktopPrepared(containerId: String, distroId: String, desktopId: String) {
+        setupMarkerFile(containerId, desktopId).writeText(
+            """{"desktopId":"$desktopId","distroId":"$distroId","completedAt":${System.currentTimeMillis()}}"""
+        )
+    }
+
+    fun clearDesktopPrepared(containerId: String, desktopId: String) {
+        setupMarkerFile(containerId, desktopId).delete()
+    }
+
     fun deleteContainer(containerId: String) {
         val dir = File(containersRoot, containerId)
         if (dir.exists()) {
