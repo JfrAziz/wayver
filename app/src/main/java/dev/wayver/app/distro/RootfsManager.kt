@@ -78,10 +78,8 @@ class RootfsManager(
         return false
     }
 
-    fun downloadImage(distro: Distro, onProgress: (String) -> Unit): Boolean {
-        val urlStr = distro.rootfsUrl ?: return false
-        return HttpDownloader.download(urlStr, imageFile(distro), onProgress)
-    }
+    fun downloadImage(distro: Distro, onProgress: (String) -> Unit): Boolean =
+        HttpDownloader.download(distro.rootfsUrl, imageFile(distro), onProgress)
 
     private fun extractIntoContainer(containerId: String, distro: Distro, stream: InputStream): Boolean {
         val dir = rootfsDir(containerId)

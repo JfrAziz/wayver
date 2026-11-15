@@ -21,7 +21,7 @@ interface Distro {
     val name: String
     val iconRes: Int
 
-    val rootfsUrl: String? get() = null
+    val rootfsUrl: String
     val markerRelPath: String
     val shellPath: String
     val pathEnv: String
