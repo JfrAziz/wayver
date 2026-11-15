@@ -27,8 +27,7 @@ object ArchSway {
             name = "Sway",
             prepare = { ctx ->
                 val cfgRoot = File(ctx.rootfsDir, "root/.config")
-                AssetCopy.copyAssetTree(ctx.context, "distros/arch/labwc", cfgRoot)
-                AssetCopy.copyAssetTree(ctx.context, "distros/arch/sway", cfgRoot)
+                AssetCopy.copyAssetTree(ctx.context, "distros/arch/sway", File(cfgRoot, "sway"))
                 AssetCopy.copyAssetFileIfMissing(ctx.context, "wallpaper.jpg", File(cfgRoot, "sway/wallpaper.jpg"))
                 ctx.runInProot("$pacmanPrep && pacman -Syu --noconfirm --needed $packages") == 0
             },

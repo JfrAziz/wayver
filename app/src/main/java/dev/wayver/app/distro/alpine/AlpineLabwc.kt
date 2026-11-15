@@ -18,7 +18,7 @@ object AlpineLabwc {
             name = "LabWC Desktop",
             prepare = { ctx ->
                 val cfgRoot = File(ctx.rootfsDir, "root/.config")
-                AssetCopy.copyAssetTree(ctx.context, "distros/alpine/labwc", cfgRoot)
+                AssetCopy.copyAssetTree(ctx.context, "distros/alpine/labwc", File(cfgRoot, "labwc"))
                 AssetCopy.copyAssetFileIfMissing(ctx.context, "wallpaper.jpg", File(cfgRoot, "labwc/wallpaper.jpg"))
                 ctx.runInProot("apk update && apk add --no-cache $packages") == 0
             },

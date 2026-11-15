@@ -1,9 +1,9 @@
 # Wayver Sway Desktop Config (Omarchy-inspired)
 
 set $mod Mod1
-set $term foot
+set $term foot -c /root/.config/sway/foot/foot.ini
 set $files pcmanfm
-set $menu fuzzel
+set $menu fuzzel --config /root/.config/sway/fuzzel/fuzzel.ini
 
 font pango:DejaVu Sans 10
 seat * xcursor_theme Adwaita 24
@@ -44,9 +44,7 @@ client.urgent           $red      $base  $red   $red      $red
 output * bg /root/.config/sway/wallpaper.jpg fill
 
 # Top status bar
-bar {
-    swaybar_command waybar
-}
+exec waybar -c /root/.config/sway/waybar/config.jsonc -s /root/.config/sway/waybar/style.css
 
 # Core apps & launcher
 bindsym $mod+space exec $menu

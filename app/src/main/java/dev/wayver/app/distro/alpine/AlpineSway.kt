@@ -18,8 +18,7 @@ object AlpineSway {
             name = "Sway",
             prepare = { ctx ->
                 val cfgRoot = File(ctx.rootfsDir, "root/.config")
-                AssetCopy.copyAssetTree(ctx.context, "distros/alpine/labwc", cfgRoot)
-                AssetCopy.copyAssetTree(ctx.context, "distros/alpine/sway", cfgRoot)
+                AssetCopy.copyAssetTree(ctx.context, "distros/alpine/sway", File(cfgRoot, "sway"))
                 AssetCopy.copyAssetFileIfMissing(ctx.context, "wallpaper.jpg", File(cfgRoot, "sway/wallpaper.jpg"))
                 ctx.runInProot("apk update && apk add --no-cache $packages") == 0
             },

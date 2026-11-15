@@ -11,7 +11,7 @@
   "modules-right": ["cpu", "memory", "clock"],
   "custom/launcher": {
     "format": "Apps",
-    "on-click": "fuzzel",
+    "on-click": "fuzzel --config /root/.config/sway/fuzzel/fuzzel.ini",
     "tooltip": false
   },
   "sway/workspaces": {

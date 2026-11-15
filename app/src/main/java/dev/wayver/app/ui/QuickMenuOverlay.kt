@@ -98,17 +98,17 @@ fun QuickMenuOverlay(
         Box(modifier = Modifier.fillMaxSize()) {
             // Only 2 floating pill buttons when the right-side sheet is closed: Keyboard + Quick Menu.
             if (!state.isOpen) {
-                Row(
+                Column(
                     modifier =
                     Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(14.dp)
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 10.dp)
                         .clip(RoundedCornerShape(999.dp))
                         .background(AppColors.Bg.copy(alpha = 0.78f))
                         .border(1.dp, AppColors.Border, RoundedCornerShape(999.dp))
-                        .padding(horizontal = 6.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 4.dp, vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     FloatingPillButton(
                         icon = Icons.Rounded.Keyboard,

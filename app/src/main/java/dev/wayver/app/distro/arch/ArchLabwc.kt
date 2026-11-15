@@ -27,7 +27,7 @@ object ArchLabwc {
             name = "LabWC Desktop",
             prepare = { ctx ->
                 val cfgRoot = File(ctx.rootfsDir, "root/.config")
-                AssetCopy.copyAssetTree(ctx.context, "distros/arch/labwc", cfgRoot)
+                AssetCopy.copyAssetTree(ctx.context, "distros/arch/labwc", File(cfgRoot, "labwc"))
                 AssetCopy.copyAssetFileIfMissing(ctx.context, "wallpaper.jpg", File(cfgRoot, "labwc/wallpaper.jpg"))
                 ctx.runInProot("$pacmanPrep && pacman -Syu --noconfirm --needed $packages") == 0
             },

@@ -19,7 +19,7 @@ object DebianLabwc {
             name = "LabWC Desktop",
             prepare = { ctx ->
                 val cfgRoot = File(ctx.rootfsDir, "root/.config")
-                AssetCopy.copyAssetTree(ctx.context, "distros/debian/labwc", cfgRoot)
+                AssetCopy.copyAssetTree(ctx.context, "distros/debian/labwc", File(cfgRoot, "labwc"))
                 AssetCopy.copyAssetFileIfMissing(ctx.context, "wallpaper.jpg", File(cfgRoot, "labwc/wallpaper.jpg"))
                 ctx.runInProot("$aptPrefix update && $aptPrefix install -y --no-install-recommends $packages") == 0
             },
