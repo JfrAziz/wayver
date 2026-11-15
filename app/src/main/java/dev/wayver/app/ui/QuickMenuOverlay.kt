@@ -63,6 +63,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.wayver.app.BuildConfig
 import dev.wayver.app.container.ContainerConfig
 import dev.wayver.app.distro.Distro
 import dev.wayver.app.distro.DistroRegistry
@@ -416,6 +417,7 @@ private fun OverviewTab(
         }
 
         SheetCard(title = "DEVICE & DISPLAY") {
+            InfoRow("Wayver", "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
             InfoRow("Device", "${Build.MANUFACTURER} ${Build.MODEL}")
             InfoRow(
                 "ABI / Android",

@@ -70,6 +70,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.wayver.app.BuildConfig
 import dev.wayver.app.container.ContainerConfig
 import dev.wayver.app.container.EnvConfig
 import dev.wayver.app.container.ResolutionConfig
@@ -119,12 +120,30 @@ fun LauncherScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "Wayver",
-                        color = AppColors.TextPrimary,
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Wayver",
+                            color = AppColors.TextPrimary,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Surface(
+                            color = AppColors.SurfaceElevated,
+                            shape = RoundedCornerShape(6.dp),
+                            border = BorderStroke(1.dp, AppColors.Border)
+                        ) {
+                            Text(
+                                text = "v${BuildConfig.VERSION_NAME}",
+                                color = AppColors.TextMuted,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically

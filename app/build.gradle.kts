@@ -16,8 +16,8 @@ android {
         applicationId = "dev.wayver.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0-mvp"
+        versionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
+        versionName = (project.findProperty("versionName") as String?) ?: "0.1.0"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
@@ -32,6 +32,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
@@ -104,4 +105,9 @@ val buildRustNative =
 
 tasks.named("preBuild") {
     dependsOn(buildRustNative)
+}
+
+// Ensure kotlin-lsp's prepareKotlinIdeaImport runs all BuildConfig tasks before querying generated sources
+tasks.matching { it.name == "prepareKotlinIdeaImport" }.configureEach {
+    dependsOn(tasks.matching { it.name.endsWith("BuildConfig") })
 }
