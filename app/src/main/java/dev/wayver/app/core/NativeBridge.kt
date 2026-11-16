@@ -26,4 +26,8 @@ object NativeBridge {
     external fun nativeOnKey(handle: Long, evdevKey: Int, pressed: Boolean, mods: Int)
 
     external fun nativeSetRefreshRate(handle: Long, hz: Float)
+
+    external fun nativeSetClipboard(handle: Long, text: String)
+
+    external fun nativePollClipboard(handle: Long): String?
 }

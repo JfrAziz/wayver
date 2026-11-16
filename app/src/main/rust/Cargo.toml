@@ -15,7 +15,9 @@ jni = "0.21"
 libc = "0.2"
 log = "0.4"
 ndk-sys = "0.6"
+wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["server"] }
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 wayland-server = "0.31"
 
 [profile.release]

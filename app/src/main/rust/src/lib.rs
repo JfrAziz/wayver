@@ -1,4 +1,5 @@
 mod audio;
+mod clipboard;
 mod vk_presenter;
 mod wl_server;
 
@@ -260,4 +261,42 @@ pub extern "system" fn Java_dev_wayver_app_core_NativeBridge_nativeSetRefreshRat
     if let Some(p) = &s.presenter {
         p.set_refresh_rate(hz);
     }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_dev_wayver_app_core_NativeBridge_nativeSetClipboard(
+    mut env: JNIEnv,
+    _cls: JClass,
+    handle: jlong,
+    text: JString,
+) {
+    let Ok(text) = env.get_string(&text) else {
+        return;
+    };
+    let text_str: String = text.into();
+    if let Some(s) = unsafe { from_handle(handle) } {
+        if let Some(srv) = &s.server {
+            srv.set_clipboard(text_str);
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_dev_wayver_app_core_NativeBridge_nativePollClipboard(
+    env: JNIEnv,
+    _cls: JClass,
+    handle: jlong,
+) -> jstring {
+    let Some(s) = (unsafe { from_handle(handle) }) else {
+        return std::ptr::null_mut();
+    };
+    let Some(srv) = &s.server else {
+        return std::ptr::null_mut();
+    };
+    let Some(text) = srv.poll_clipboard() else {
+        return std::ptr::null_mut();
+    };
+    env.new_string(text)
+        .map(|s| s.into_raw())
+        .unwrap_or(std::ptr::null_mut())
 }

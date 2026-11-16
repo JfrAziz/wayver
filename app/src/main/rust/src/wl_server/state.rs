@@ -1,6 +1,6 @@
 //! Wayland compositor state, event loop, input/output dispatch, and surface commits.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -10,16 +10,17 @@ use log::{error, info};
 use wayland_protocols::xdg::shell::server::{xdg_surface, xdg_toplevel, xdg_wm_base};
 use wayland_server::backend::{ClientData, ClientId, DisconnectReason, ObjectId};
 use wayland_server::protocol::{
-    wl_buffer, wl_callback, wl_compositor, wl_data_device_manager, wl_keyboard, wl_output,
-    wl_pointer, wl_seat, wl_shm, wl_subcompositor, wl_surface, wl_touch,
+    wl_buffer, wl_callback, wl_compositor, wl_data_device, wl_data_device_manager, wl_keyboard,
+    wl_output, wl_pointer, wl_seat, wl_shm, wl_subcompositor, wl_surface, wl_touch,
 };
-use wayland_server::{Display, ListeningSocket, Resource};
+use wayland_server::{Display, DisplayHandle, ListeningSocket, Resource};
 
+use crate::clipboard::ClipboardChannel;
 use crate::vk_presenter::{DirtyRect, VkPresenter};
 
 use super::present_worker::AsyncPresentWorker;
 use super::shm::ShmBufferData;
-use super::{InputEvent, SharedControl, SharedMetrics};
+use super::{DisplayControl, InputEvent, SharedMetrics};
 
 struct WayverClientData;
 
@@ -43,21 +44,25 @@ pub(super) struct SurfaceData {
     pub buffer_scale: u32,
 }
 
-pub(super) struct CompositorState {
-    pub async_presenter: AsyncPresentWorker,
-    pub runtime_dir: String,
-    pub start_time: Instant,
-    pub serial_counter: u32,
-    pub output_w: u32,
-    pub output_h: u32,
-    pub metrics: Arc<SharedMetrics>,
-    pub surfaces: HashMap<ObjectId, SurfaceData>,
-    pub buffers: HashMap<ObjectId, ShmBufferData>,
+pub(crate) struct CompositorState {
+    pub(super) async_presenter: AsyncPresentWorker,
+    pub(super) runtime_dir: String,
+    pub(super) start_time: Instant,
+    pub(super) serial_counter: u32,
+    pub(super) output_w: u32,
+    pub(super) output_h: u32,
+    pub clipboard: Arc<ClipboardChannel>,
+    pub(super) metrics: Arc<SharedMetrics>,
+    pub(super) surfaces: HashMap<ObjectId, SurfaceData>,
+    pub(super) buffers: HashMap<ObjectId, ShmBufferData>,
     pub output_resource: Option<wl_output::WlOutput>,
     pub active_surface: Option<wl_surface::WlSurface>,
     pub touch_resource: Option<wl_touch::WlTouch>,
     pub pointer_resource: Option<wl_pointer::WlPointer>,
     pub keyboard_resource: Option<wl_keyboard::WlKeyboard>,
+    pub data_devices: Vec<wl_data_device::WlDataDevice>,
+    pub android_clipboard: Option<String>,
+    pub guest_owns_selection: bool,
     pub pointer_entered: bool,
     pub keyboard_focused: bool,
     pub last_mods: u32,
@@ -192,7 +197,13 @@ impl CompositorState {
         }
     }
 
-    fn dispatch_key(&mut self, evdev_key: u32, pressed: bool, mods_depressed: u32) {
+    fn dispatch_key(
+        &mut self,
+        dh: &DisplayHandle,
+        evdev_key: u32,
+        pressed: bool,
+        mods_depressed: u32,
+    ) {
         let (Some(kbd), Some(active)) =
             (self.keyboard_resource.clone(), self.active_surface.clone())
         else {
@@ -202,6 +213,7 @@ impl CompositorState {
             let serial = self.next_serial();
             kbd.enter(serial, &active, Vec::new());
             self.keyboard_focused = true;
+            self.send_android_selection_if_owned(dh);
         }
         if mods_depressed != self.last_mods {
             let serial = self.next_serial();
@@ -246,7 +258,9 @@ pub(super) struct EventLoopConfig {
     pub listener: ListeningSocket,
     pub wakeup_read: OwnedFd,
     pub running: Arc<AtomicBool>,
-    pub control: Arc<Mutex<SharedControl>>,
+    pub display: Arc<Mutex<DisplayControl>>,
+    pub input: Arc<Mutex<VecDeque<InputEvent>>>,
+    pub clipboard: Arc<ClipboardChannel>,
     pub metrics: Arc<SharedMetrics>,
     pub presenter: Arc<VkPresenter>,
     pub runtime_dir: String,
@@ -258,7 +272,9 @@ pub(super) fn run_event_loop(cfg: EventLoopConfig) {
         listener,
         wakeup_read,
         running,
-        control,
+        display: display_ctrl,
+        input,
+        clipboard,
         metrics,
         presenter,
         runtime_dir,
@@ -282,8 +298,8 @@ pub(super) fn run_event_loop(cfg: EventLoopConfig) {
     dh.create_global::<CompositorState, wl_data_device_manager::WlDataDeviceManager, ()>(3, ());
 
     let (init_w, init_h) = {
-        let c = control.lock().unwrap();
-        (c.output_w, c.output_h)
+        let d = display_ctrl.lock().unwrap();
+        (d.output_w, d.output_h)
     };
 
     let start_time = Instant::now();
@@ -295,6 +311,7 @@ pub(super) fn run_event_loop(cfg: EventLoopConfig) {
         serial_counter: 1,
         output_w: init_w,
         output_h: init_h,
+        clipboard: Arc::clone(&clipboard),
         metrics,
         surfaces: HashMap::new(),
         buffers: HashMap::new(),
@@ -303,6 +320,9 @@ pub(super) fn run_event_loop(cfg: EventLoopConfig) {
         touch_resource: None,
         pointer_resource: None,
         keyboard_resource: None,
+        data_devices: Vec::new(),
+        android_clipboard: None,
+        guest_owns_selection: false,
         pointer_entered: false,
         keyboard_focused: false,
         last_mods: 0,
@@ -360,17 +380,18 @@ pub(super) fn run_event_loop(cfg: EventLoopConfig) {
                 > 0
             {}
 
-            let do_reconf = {
-                let mut ctrl = control.lock().unwrap();
-                state.output_w = ctrl.output_w;
-                state.output_h = ctrl.output_h;
-                let reconf = ctrl.pending_reconfigure;
-                ctrl.pending_reconfigure = false;
-                pending_events.clear();
-                pending_events.extend(ctrl.input_queue.drain(..));
-                reconf
-            };
+            // Drain clipboard updates before input so SetClipboard + Ctrl+V stays ordered.
+            if let Some(text) = clipboard.take_to_server() {
+                state.guest_owns_selection = false;
+                state.android_clipboard = Some(text);
+                state.send_android_selection(&dh);
+            }
 
+            {
+                let mut q = input.lock().unwrap();
+                pending_events.clear();
+                pending_events.extend(q.drain(..));
+            }
             for ev in pending_events.drain(..) {
                 match ev {
                     InputEvent::Touch { action, id, x, y } => {
@@ -381,10 +402,19 @@ pub(super) fn run_event_loop(cfg: EventLoopConfig) {
                         pressed,
                         mods,
                     } => {
-                        state.dispatch_key(evdev_key, pressed, mods);
+                        state.dispatch_key(&dh, evdev_key, pressed, mods);
                     }
                 }
             }
+
+            let do_reconf = {
+                let mut d = display_ctrl.lock().unwrap();
+                state.output_w = d.output_w;
+                state.output_h = d.output_h;
+                let reconf = d.pending_reconfigure;
+                d.pending_reconfigure = false;
+                reconf
+            };
             if do_reconf {
                 state.handle_reconfigure();
             }

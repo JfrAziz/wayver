@@ -2,6 +2,8 @@ package dev.wayver.app
 
 import android.annotation.SuppressLint
 import android.app.ActivityManager
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -103,6 +105,7 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
         NativeBridge.nativeSetRefreshRate(session, getDisplayRefreshRateHz())
         NativeBridge.nativeInitRuntime(session, prootRunner.xdgRuntimeDir.absolutePath)
         ContainerManager.register(containerConfig, this, prootRunner)
+        setupClipboardSync()
 
         surfaceView = createSurfaceView()
         val overlayView = createOverlayView()
@@ -315,6 +318,7 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
             enterFullscreen()
+            syncAndroidClipboardToGuest()
         } else {
             for (key in heldKeys.toList()) NativeBridge.nativeOnKey(session, key, false, 0)
             heldKeys.clear()
@@ -425,7 +429,45 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
         NativeBridge.nativeOnSurfaceDestroyed(session)
     }
 
+    private var clipboardManager: ClipboardManager? = null
+    private var lastSyncedClipboard: String? = null
+    private val clipboardListener = ClipboardManager.OnPrimaryClipChangedListener { syncAndroidClipboardToGuest() }
+
+    private fun setupClipboardSync() {
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+        clipboardManager = cm
+        cm.addPrimaryClipChangedListener(clipboardListener)
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (true) {
+                    pollGuestClipboard()
+                    delay(350.milliseconds)
+                }
+            }
+        }
+    }
+
+    private fun syncAndroidClipboardToGuest() {
+        if (session == 0L) return
+        val text = clipboardManager?.primaryClip?.takeIf { it.itemCount > 0 }
+            ?.getItemAt(0)?.coerceToText(this)?.toString()
+        if (!text.isNullOrEmpty() && text != lastSyncedClipboard) {
+            lastSyncedClipboard = text
+            NativeBridge.nativeSetClipboard(session, text)
+        }
+    }
+
+    private fun pollGuestClipboard() {
+        if (session == 0L) return
+        val text = NativeBridge.nativePollClipboard(session) ?: return
+        if (text.isNotEmpty() && text != lastSyncedClipboard) {
+            lastSyncedClipboard = text
+            clipboardManager?.setPrimaryClip(ClipData.newPlainText("Wayver", text))
+        }
+    }
+
     override fun onDestroy() {
+        clipboardManager?.removePrimaryClipChangedListener(clipboardListener)
         if (!isChangingConfigurations) {
             ContainerManager.unregister(containerConfig.id, this)
             prootRunner.stop()

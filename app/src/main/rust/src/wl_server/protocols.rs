@@ -10,9 +10,8 @@ use wayland_protocols::xdg::shell::server::{
 };
 use wayland_server::backend::ClientId;
 use wayland_server::protocol::{
-    wl_callback, wl_compositor, wl_data_device, wl_data_device_manager, wl_data_source,
-    wl_keyboard, wl_output, wl_pointer, wl_region, wl_seat, wl_subcompositor, wl_subsurface,
-    wl_surface, wl_touch,
+    wl_callback, wl_compositor, wl_keyboard, wl_output, wl_pointer, wl_region, wl_seat,
+    wl_subcompositor, wl_subsurface, wl_surface, wl_touch,
 };
 use wayland_server::{DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource};
 
@@ -503,34 +502,6 @@ impl Dispatch<wl_touch::WlTouch, ()> for CompositorState {
             .is_some_and(|t| t.id() == resource.id())
         {
             state.touch_resource = None;
-        }
-    }
-}
-
-// ---- wl_data_device_manager ----
-
-delegate_global!(wl_data_device_manager::WlDataDeviceManager);
-delegate_noop!(wl_data_source::WlDataSource);
-delegate_noop!(wl_data_device::WlDataDevice);
-
-impl Dispatch<wl_data_device_manager::WlDataDeviceManager, ()> for CompositorState {
-    fn request(
-        _state: &mut Self,
-        _client: &wayland_server::Client,
-        _resource: &wl_data_device_manager::WlDataDeviceManager,
-        request: wl_data_device_manager::Request,
-        _data: &(),
-        _dhandle: &DisplayHandle,
-        data_init: &mut DataInit<'_, Self>,
-    ) {
-        match request {
-            wl_data_device_manager::Request::CreateDataSource { id } => {
-                data_init.init(id, ());
-            }
-            wl_data_device_manager::Request::GetDataDevice { id, .. } => {
-                data_init.init(id, ());
-            }
-            _ => {}
         }
     }
 }

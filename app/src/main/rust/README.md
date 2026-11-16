@@ -14,11 +14,15 @@ src/
 │   ├── context.rs              # VkCore, VulkanContext, swapchain, staging/upload memory
 │   └── commands.rs             # Dirty-rect staging copy, barriers, copy/blit, queue submit
 ├── wl_server/
-│   ├── mod.rs                  # WlCompositorServer API, SharedControl, SharedMetrics, wakeup pipe
+│   ├── mod.rs                  # WlCompositorServer API, DisplayControl, InputEvent, SharedMetrics, wakeup pipe
 │   ├── state.rs                # CompositorState, SurfaceData, run_event_loop, handle_surface_commit
 │   ├── present_worker.rs       # AsyncPresentWorker (dirty-row coalescing + refresh-paced callbacks)
 │   ├── shm.rs                  # wl_shm / wl_shm_pool / wl_buffer mmap management
 │   └── protocols.rs            # Wayland globals & Dispatch handlers (xdg_shell, seat, output, etc.)
+├── clipboard/
+│   ├── mod.rs                  # ClipboardChannel (to_server, to_bridge, from_guest)
+│   ├── server.rs               # wl_data_device_manager v3 server on wayland-0 (standalone clients)
+│   └── bridge.rs               # ClipboardBridge (zwlr_data_control_manager_v1 client for wayland-1+)
 └── audio/
     ├── mod.rs                  # Audio module exports
     ├── pulse_audio.rs          # PulseAudio native protocol v35 server on $XDG_RUNTIME_DIR/pulse-native
@@ -33,13 +37,15 @@ src/
 flowchart LR
     subgraph Android["Android (Kotlin / SurfaceView)"]
         NB["NativeBridge JNI"]
+        CLIP["ClipboardManager"]
         SURF["ANativeWindow (SurfaceView)"]
         SPK["Audio HAL (AAudio)"]
     end
 
     subgraph Rust["libwayver.so (Rust)"]
         SESS["NativeSession (lib.rs)"]
-        WL["wl_server (wayland-0)"]
+        WL["wl_server (wayland-0 + clipboard/server)"]
+        CB["ClipboardBridge (wayland-1+)"]
         PW["AsyncPresentWorker"]
         VK["VkPresenter (Vulkan)"]
         PA["PulseAudioServer (pulse-native)"]
@@ -47,15 +53,20 @@ flowchart LR
     end
 
     subgraph Linux["Linux Apps (PRoot)"]
-        WLC["Wayland Clients (labwc, apps)"]
+        WLC["Standalone Wayland Apps (foot)"]
+        NEST["Nested Compositor (sway, labwc, river)"]
         PAC["PulseAudio / PipeWire Clients"]
     end
 
+    CLIP <-->|"set / poll"| NB
     NB --> SESS
     SESS --> WL
     SESS --> PA
     SESS --> VK
-    WLC <-->|"wl_shm + input + xdg_shell"| WL
+    WL <-->|"ClipboardChannel"| CB
+    WLC <-->|"wl_shm + input + wl_data_device"| WL
+    NEST <-->|"wl_shm + input + xdg_shell"| WL
+    CB <-->|"zwlr_data_control_v1"| NEST
     WL -->|"submit pixels + dirty rect"| PW
     PW -->|"present_pixels_damaged"| VK
     VK -->|"frame_interval() pacing"| PW
@@ -78,7 +89,8 @@ Kotlin interacts with Rust exclusively through `NativeBridge` (`NativeSession` h
 | Surface resized / ready | `nativeOnSurfaceChanged(w, h)`  | Notifies `WlCompositorServer::set_output_size(w, h)`, recreates Vulkan swapchain (`VkPresenter::set_window`), and draws an initial clear frame (`draw_clear`). |
 | Runtime boot            | `nativeInitRuntime(dir)`        | Starts `WlCompositorServer` (`$dir/wayland-0`) and `PulseAudioServer` (`$dir/pulse-native`).                                                                   |
 | Display refresh rate    | `nativeSetRefreshRate(hz)`      | Stores `950_000 / hz.clamp(30.0, 240.0)` µs in `VkPresenter::frame_interval_us` (lock-free `AtomicU64`).                                                       |
-| Touch / Key input       | `nativeOnTouch` / `nativeOnKey` | Pushes `InputEvent` into `SharedControl.input_queue` (cap 128) and writes 1 byte to the `wakeup_write` pipe to wake `poll()`.                                  |
+| Touch / Key input       | `nativeOnTouch` / `nativeOnKey` | Pushes `InputEvent` (`Touch` / `Key`) into `WlCompositorServer.input` (cap 128) and writes 1 byte to `wakeup_write` to wake `poll()`.                       |
+| Clipboard sync          | `nativeSetClipboard` / `nativePollClipboard` | Pushes Android clipboard text into `ClipboardChannel` (waking `wayland-0` + `ClipboardBridge`), and drains `from_guest` back to Android.                     |
 | Surface destroyed       | `nativeOnSurfaceDestroyed`      | Destroys the Vulkan swapchain/surface (`set_window(null, 0, 0)`) and releases `ANativeWindow`.                                                                 |
 | Activity destroyed      | `nativeDestroySession`          | Drops `PulseAudioServer`, `WlCompositorServer`, `VkPresenter`, and releases `ANativeWindow`.                                                                   |
 
@@ -89,8 +101,10 @@ Kotlin interacts with Rust exclusively through `NativeBridge` (`NativeSession` h
 ### State Ownership
 
 - **`WlCompositorServer`** ([wl_server/mod.rs](src/wl_server/mod.rs)):
-    - Owns the background event-loop `JoinHandle`, `running: Arc<AtomicBool>`, `wakeup_write: OwnedFd` (self-pipe), `control: Arc<Mutex<SharedControl>>`, and `metrics: Arc<SharedMetrics>`.
-    - `SharedControl` holds `output_w`, `output_h`, `pending_reconfigure`, and `input_queue: VecDeque<InputEvent>`.
+    - Owns the background event-loop `JoinHandle`, `clipboard_bridge: Option<ClipboardBridge>`, `running: Arc<AtomicBool>`, `wakeup_write` self-pipe, `display: Arc<Mutex<DisplayControl>>`, `input: Arc<Mutex<VecDeque<InputEvent>>>`, `clipboard: Arc<ClipboardChannel>`, and `metrics: Arc<SharedMetrics>`.
+    - `DisplayControl` holds `output_w`, `output_h`, and `pending_reconfigure`.
+    - `InputEvent` holds `Touch` and `Key` events only.
+    - `ClipboardChannel` ([clipboard/mod.rs](src/clipboard/mod.rs)) holds `to_server`, `to_bridge`, and `from_guest`.
     - `SharedMetrics` holds lock-free atomics (`surface_w`, `surface_h`, `buffer_scale`) read by `nativeGetStatus` and input coordinate scaling.
 - **`CompositorState`** ([wl_server/state.rs](src/wl_server/state.rs)):
     - Lives exclusively on the Wayland event-loop thread (no lock needed inside protocol callbacks).
@@ -120,6 +134,9 @@ Kotlin interacts with Rust exclusively through `NativeBridge` (`NativeSession` h
         - Updates `SharedMetrics` if buffer size or scale changed.
         - Locks `ShmPoolInner`, slices the pixel region, and calls `async_presenter.submit(...)`, transferring `pending_damage` and `frame_cb`.
         - Immediately calls `buf.release()` so the client can reuse its SHM buffer without waiting for Vulkan.
+5. **Two-Way Clipboard Sync**:
+    - **Standalone clients on `wayland-0`** ([clipboard/server.rs](src/clipboard/server.rs)): implements `wl_data_device_manager` v3 (`wl_data_source`, `wl_data_offer`, `wl_data_device`). Guest selections are read via pipe into `ClipboardChannel.from_guest`; Android text is drained from `ClipboardChannel.to_server` before `input` (preserving `Ctrl+V` order) and re-offered on `wl_keyboard.enter` while Android owns the selection.
+    - **Nested `wlroots` compositors on `wayland-1+`** ([clipboard/bridge.rs](src/clipboard/bridge.rs)): runs a background `wayland-client` thread (`ClipboardBridge`) that discovers the newest `wayland-<N>` socket in `$XDG_RUNTIME_DIR` (switching automatically if a newer compositor spawns) and bridges selections via `zwlr_data_control_manager_v1` (capped at 1 MiB).
 
 ---
 
