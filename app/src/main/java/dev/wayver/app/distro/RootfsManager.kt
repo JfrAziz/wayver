@@ -86,7 +86,7 @@ class RootfsManager(
         if (dir.exists()) dir.deleteRecursively()
         dir.mkdirs()
 
-        TarExtractor.extract(stream, dir)
+        TarExtractor.extract(stream, dir, distro.rootfsStripComponents)
         ensureBaseFiles(dir)
         distro.prepareRootfs(dir)
 

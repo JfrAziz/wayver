@@ -1,0 +1,52 @@
+#!/bin/sh
+# Wayver River Desktop Config (Sway-matched)
+
+riverctl map normal Alt Space spawn "fuzzel --config /root/.config/river/fuzzel/fuzzel.ini"
+riverctl map normal Alt Return spawn "foot -c /root/.config/river/foot/foot.ini"
+riverctl map normal Alt E spawn "pcmanfm"
+riverctl map normal Alt Q close
+riverctl map normal Alt W close
+riverctl map normal Alt F toggle-fullscreen
+riverctl map normal Alt T toggle-float
+riverctl map normal Alt+Shift Space toggle-float
+riverctl map normal Alt+Shift E exit
+
+# Focus (vim + arrows)
+riverctl map normal Alt H focus-view left
+riverctl map normal Alt J focus-view down
+riverctl map normal Alt K focus-view up
+riverctl map normal Alt L focus-view right
+riverctl map normal Alt Left focus-view left
+riverctl map normal Alt Down focus-view down
+riverctl map normal Alt Up focus-view up
+riverctl map normal Alt Right focus-view right
+
+# Move/swap views
+riverctl map normal Alt+Shift H swap left
+riverctl map normal Alt+Shift J swap down
+riverctl map normal Alt+Shift K swap up
+riverctl map normal Alt+Shift L swap right
+
+# Floating mouse bindings
+riverctl map-pointer normal Alt BTN_LEFT move-view
+riverctl map-pointer normal Alt BTN_RIGHT resize-view
+
+# Tags 1..5
+for i in 1 2 3 4 5; do
+    tags=$((1 << (i - 1)))
+    riverctl map normal Alt "$i" set-focused-tags "$tags"
+    riverctl map normal Alt+Shift "$i" set-view-tags "$tags"
+done
+
+# Catppuccin Mocha palette
+riverctl background-color 0x1e1e2e
+riverctl border-color-focused 0x89b4fa
+riverctl border-color-unfocused 0x313244
+riverctl border-width 2
+riverctl set-cursor-warp on-output-change
+
+swaybg -m fill -i /root/.config/river/wallpaper.jpg &
+waybar -c /root/.config/river/waybar/config.jsonc -s /root/.config/river/waybar/style.css &
+
+riverctl default-layout rivertile
+rivertile -view-padding 8 -outer-padding 8 &

@@ -6,9 +6,10 @@ import java.io.File
 import java.io.InputStream
 import java.nio.charset.StandardCharsets
 import java.util.zip.GZIPInputStream
+import org.tukaani.xz.XZInputStream
 
 /**
- * Extracts `.tar` and `.tar.gz` rootfs archives into a destination directory.
+ * Extracts `.tar`, `.tar.gz`, and `.tar.xz` rootfs archives into a destination directory.
  *
  * Uses `android.system.Os` for symlinks, hardlinks, and POSIX permissions because
  * `java.io.File` cannot represent symlinks or arbitrary Unix mode bits.
@@ -25,26 +26,45 @@ object TarExtractor {
         val linkTarget: String
     )
 
-    fun extract(rawStream: InputStream, destRoot: File) {
+    fun extract(rawStream: InputStream, destRoot: File, stripComponents: Int = 0) {
         openTarStream(rawStream).use { stream ->
-            extractTar(stream, destRoot)
+            extractTar(stream, destRoot, stripComponents)
         }
     }
 
     /**
-     * Sniffs the gzip magic header (0x1f 0x8b) instead of trusting the file extension,
-     * since user-imported archives may be plain `.tar` or `.tar.gz`.
+     * Sniffs gzip (0x1f 0x8b) and XZ (0xfd 0x37 0x7a 0x58 0x5a 0x00) magic headers instead of
+     * trusting the file extension, since user-imported archives may be `.tar`, `.tar.gz`, or `.tar.xz`.
      */
     private fun openTarStream(rawStream: InputStream): InputStream {
         val buffered = BufferedInputStream(rawStream, IO_BUFFER_SIZE)
-        buffered.mark(4)
-        val b0 = buffered.read()
-        val b1 = buffered.read()
+        buffered.mark(6)
+        val header = ByteArray(6)
+        val n = buffered.read(header)
         buffered.reset()
-        return if (b0 == 0x1f && b1 == 0x8b) GZIPInputStream(buffered, IO_BUFFER_SIZE) else buffered
+        return when {
+            n >= 2 && header[0] == 0x1f.toByte() && header[1] == 0x8b.toByte() ->
+                GZIPInputStream(buffered, IO_BUFFER_SIZE)
+            n == 6 &&
+                header[0] == 0xfd.toByte() &&
+                header[1] == 0x37.toByte() &&
+                header[2] == 0x7a.toByte() &&
+                header[3] == 0x58.toByte() &&
+                header[4] == 0x5a.toByte() &&
+                header[5] == 0x00.toByte() ->
+                XZInputStream(buffered)
+            else -> buffered
+        }
     }
 
-    private fun extractTar(input: InputStream, destRoot: File) {
+    private fun stripPathComponents(rawPath: String, stripComponents: Int): String {
+        val cleaned = rawPath.trimStart('/', '.').trimStart('/')
+        if (stripComponents <= 0 || cleaned.isEmpty()) return cleaned
+        val parts = cleaned.split('/').filter { it.isNotEmpty() }
+        return if (parts.size <= stripComponents) "" else parts.drop(stripComponents).joinToString("/")
+    }
+
+    private fun extractTar(input: InputStream, destRoot: File, stripComponents: Int) {
         val headerBuf = ByteArray(TAR_BLOCK_SIZE)
         var longName: String? = null
         var longLink: String? = null
@@ -74,14 +94,14 @@ object TarExtractor {
                 continue
             }
 
-            val cleanPath = header.rawPath.trimStart('/', '.').trimStart('/')
+            val cleanPath = stripPathComponents(header.rawPath, stripComponents)
             if (cleanPath.isEmpty()) {
                 skipBytes(input, header.size)
                 skipPadding(input, header.size)
                 continue
             }
 
-            extractTarEntry(input, File(destRoot, cleanPath), destRoot, header, dirModes)
+            extractTarEntry(input, File(destRoot, cleanPath), destRoot, header, dirModes, stripComponents)
         }
 
         // Apply directory permissions bottom-up after all files are extracted; setting a restrictive
@@ -117,7 +137,8 @@ object TarExtractor {
         outFile: File,
         destRoot: File,
         header: TarHeader,
-        dirModes: MutableList<Pair<File, Int>>
+        dirModes: MutableList<Pair<File, Int>>,
+        stripComponents: Int
     ) {
         when (header.typeFlag) {
             '5' -> {
@@ -134,9 +155,12 @@ object TarExtractor {
 
             '1' -> {
                 outFile.parentFile?.mkdirs()
-                val targetFile = File(destRoot, header.linkTarget.trimStart('/', '.').trimStart('/'))
-                if (outFile.exists()) outFile.delete()
-                runCatching { Os.link(targetFile.absolutePath, outFile.absolutePath) }
+                val targetPath = stripPathComponents(header.linkTarget, stripComponents)
+                if (targetPath.isNotEmpty()) {
+                    val targetFile = File(destRoot, targetPath)
+                    if (outFile.exists()) outFile.delete()
+                    runCatching { Os.link(targetFile.absolutePath, outFile.absolutePath) }
+                }
             }
 
             // Skip device nodes and FIFOs: unprivileged mknod fails on Android, and PRoot binds /dev.

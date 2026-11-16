@@ -18,6 +18,9 @@ object Alpine : Distro {
         listOf(
             AlpineLabwc.spec,
             AlpineSway.spec,
+            AlpineXfce.spec,
+            AlpineLxqt.spec,
+            AlpineRiver.spec,
             AlpineFoot.spec
         )
 }

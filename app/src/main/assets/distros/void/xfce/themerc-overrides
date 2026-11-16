@@ -1,0 +1,37 @@
+border.width: 2
+window.cornerRadius: 10
+titlebar.height: 30
+padding.width: 8
+padding.height: 5
+
+window.active.title.bg.color: #1e1e2e
+window.active.label.text.color: #cdd6f4
+window.active.border.color: #89b4fa
+window.active.button.unpressed.image.color: #a6adc8
+window.active.button.hover.bg.color: #313244
+window.active.button.close.hover.bg.color: #f38ba8
+
+window.inactive.title.bg.color: #181825
+window.inactive.label.text.color: #6c7086
+window.inactive.border.color: #313244
+window.inactive.button.unpressed.image.color: #6c7086
+
+menu.width.min: 210
+menu.width.max: 320
+menu.items.bg.color: #1e1e2e
+menu.items.text.color: #cdd6f4
+menu.items.active.bg.color: #89b4fa
+menu.items.active.text.color: #11111b
+menu.items.padding.x: 14
+menu.items.padding.y: 7
+menu.title.bg.color: #181825
+menu.title.text.color: #89b4fa
+menu.separator.color: #313244
+menu.separator.width: 1
+menu.separator.padding.width: 10
+menu.separator.padding.height: 5
+
+osd.bg.color: #1e1e2e
+osd.border.color: #89b4fa
+osd.label.text.color: #cdd6f4
+osd.border.width: 2

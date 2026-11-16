@@ -88,13 +88,15 @@ class ProotRunner(
 
         val rootfsDir = rootfsManager.rootfsDir(containerId)
         procSysBindings.prepare()
-        val args = buildProotArgs(prootBin, rootfsDir, distro, cmd)
+        val l2sDir = File(rootfsManager.containerDir(containerId), "proot-l2s").apply { mkdirs() }
+        val args = buildProotArgs(prootBin, rootfsDir, l2sDir, distro, cmd)
         return ProcessBuilder(args).apply {
             redirectErrorStream(true)
             environment().apply {
                 // PROOT_TMP_DIR is required because Android does not expose a writable /tmp for ELF staging.
                 put("PROOT_LOADER", prootLoader.absolutePath)
                 put("PROOT_TMP_DIR", tmpDir.absolutePath)
+                put("PROOT_L2S_DIR", l2sDir.absolutePath)
 
                 // Must match the Wayland & PulseAudio sockets created by DisplayActivity in xdgRuntimeDir.
                 put("XDG_RUNTIME_DIR", "/tmp/xdg-runtime")
@@ -102,6 +104,7 @@ class ProotRunner(
                 put("PULSE_SERVER", "unix:/tmp/xdg-runtime/pulse-native")
 
                 put("HOME", "/root")
+                put("SHELL", distro.shellPath)
                 put("TERM", "xterm-256color")
                 put("LANG", "C.UTF-8")
                 put("PATH", distro.pathEnv)
@@ -116,7 +119,13 @@ class ProotRunner(
         activeProcess = null
     }
 
-    private fun buildProotArgs(prootBin: File, rootfsDir: File, distro: Distro, cmd: String): List<String> = buildList {
+    private fun buildProotArgs(
+        prootBin: File,
+        rootfsDir: File,
+        l2sDir: File,
+        distro: Distro,
+        cmd: String
+    ): List<String> = buildList {
         addAll(
             listOf(
                 prootBin.absolutePath,
@@ -128,7 +137,8 @@ class ProotRunner(
                 "-w", "/root",
                 // Bind Android kernel interfaces and per-container IPC/Wayland directories.
                 "-b", "/dev",
-                "-b", "${shmDir.absolutePath}:/dev/shm"
+                "-b", "${shmDir.absolutePath}:/dev/shm",
+                "-b", "${l2sDir.absolutePath}:${l2sDir.absolutePath}"
             )
         )
         addAll(procSysBindings.bindArgs())

@@ -12,15 +12,6 @@ object ArchSway {
             "libpulse", "pulseaudio-alsa"
         ).joinToString(" ")
 
-    private val pacmanPrep =
-        """
-        rm -f /var/lib/pacman/db.lck
-        if [ ! -d /etc/pacman.d/gnupg/private-keys-v1.d ]; then
-            pacman-key --init && pacman-key --populate archlinuxarm
-        fi
-        pacman -Syy --noconfirm
-        """.trimIndent()
-
     val spec =
         DesktopSpec(
             id = "sway",
@@ -29,7 +20,7 @@ object ArchSway {
                 val cfgRoot = File(ctx.rootfsDir, "root/.config")
                 AssetCopy.copyAssetTree(ctx.context, "distros/arch/sway", File(cfgRoot, "sway"))
                 AssetCopy.copyAssetFileIfMissing(ctx.context, "wallpaper.jpg", File(cfgRoot, "sway/wallpaper.jpg"))
-                ctx.runInProot("$pacmanPrep && pacman -Syu --noconfirm --needed $packages") == 0
+                ctx.runInProot("${Arch.pacmanPrep} && pacman -Syu --noconfirm --needed $packages") == 0
             },
             launch =
             """

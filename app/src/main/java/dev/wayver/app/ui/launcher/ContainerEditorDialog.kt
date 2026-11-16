@@ -79,7 +79,6 @@ fun ContainerEditorDialog(existing: ContainerConfig?) {
             selected = { it.id == form.selectedDistro.id },
             onSelect = form::selectDistro,
             label = { it.name },
-            scrollableRow = true,
             enabled = { !form.isEditing || it.id == form.selectedDistro.id },
             leadingIcon = { Image(painterResource(it.iconRes), null, modifier = Modifier.size(18.dp)) }
         )

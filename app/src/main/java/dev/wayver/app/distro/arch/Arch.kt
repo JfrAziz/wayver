@@ -18,8 +18,35 @@ object Arch : Distro {
         listOf(
             ArchLabwc.spec,
             ArchSway.spec,
+            ArchXfce.spec,
+            ArchLxqt.spec,
+            ArchRiver.spec,
             ArchFoot.spec
         )
+
+    val pacmanPrep =
+        """
+        rm -f /var/lib/pacman/db.lck
+        best=""
+        best_t=999
+        for m in http://mirror.archlinuxarm.org http://tw.mirror.archlinuxarm.org http://de.mirror.archlinuxarm.org http://fl.us.mirror.archlinuxarm.org http://nj.us.mirror.archlinuxarm.org; do
+            t=${'$'}(curl -sL -o /dev/null -w "%{http_code} %{time_total}" --max-time 3 "${'$'}m/aarch64/core/core.db" 2>/dev/null)
+            code=${'$'}{t%% *}
+            sec=${'$'}{t#* }
+            if [ "${'$'}code" = "200" ] && awk "BEGIN{exit !(${'$'}sec < ${'$'}best_t)}"; then
+                best="${'$'}m"
+                best_t="${'$'}sec"
+            fi
+        done
+        if [ -n "${'$'}best" ]; then
+            echo "Selected mirror: ${'$'}best (${'$'}best_t s)"
+            printf 'Server = %s/${'$'}arch/${'$'}repo\nServer = http://mirror.archlinuxarm.org/${'$'}arch/${'$'}repo\n' "${'$'}best" > /etc/pacman.d/mirrorlist
+        fi
+        if [ ! -d /etc/pacman.d/gnupg/private-keys-v1.d ]; then
+            pacman-key --init && pacman-key --populate archlinuxarm
+        fi
+        pacman -Syy --noconfirm
+        """.trimIndent()
 
     override fun prepareRootfs(rootfsDir: File) {
         val lockFile = File(rootfsDir, "var/lib/pacman/db.lck")
@@ -48,6 +75,14 @@ object Arch : Distro {
         }
         if (text.contains("\nCheckSpace")) {
             text = text.replace("\nCheckSpace", "\n#CheckSpace")
+            changed = true
+        }
+        if (text.contains("#ParallelDownloads")) {
+            text = text.replace("#ParallelDownloads = 5", "ParallelDownloads = 5")
+            text = text.replace("#ParallelDownloads", "ParallelDownloads = 5")
+            changed = true
+        } else if (!text.contains("\nParallelDownloads")) {
+            text = text.replace("[options]", "[options]\nParallelDownloads = 5")
             changed = true
         }
         if (changed) {

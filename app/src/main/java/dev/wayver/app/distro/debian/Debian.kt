@@ -18,6 +18,8 @@ object Debian : Distro {
     override val desktops =
         listOf(
             DebianLabwc.spec,
+            DebianXfce.spec,
+            DebianPhosh.spec,
             DebianFoot.spec
         )
 }

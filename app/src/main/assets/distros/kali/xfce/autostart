@@ -1,0 +1,2 @@
+(sleep 1; swaybg -m fill -i /root/.config/xfce/wallpaper.jpg 2>&1 | sed 's/^/[swaybg] /') &
+(sleep 1; xfce4-panel 2>&1 | sed 's/^/[xfce4-panel] /') &

@@ -1,0 +1,2 @@
+(sleep 1; swaybg -m fill -i /root/.config/lxqt/wallpaper.jpg 2>&1 | sed 's/^/[swaybg] /') &
+(sleep 1; lxqt-panel 2>&1 | sed 's/^/[lxqt-panel] /') &
