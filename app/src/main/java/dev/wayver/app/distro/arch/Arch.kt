@@ -8,11 +8,14 @@ object Arch : Distro {
     override val id = "arch"
     override val name = "Arch Linux ARM"
     override val iconRes = R.drawable.ic_distro_arch
+
     override val rootfsUrl = "https://fl.us.mirror.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz"
-    override val markerRelPath = "etc/arch-release"
+
+    override val relPath = "etc/arch-release"
     override val shellPath = "/bin/bash"
-    override val extraEnv = ArchEnv.containerEnv
+
     override val appEnvs = ArchEnv.appEnvs
+    override val extraEnv = ArchEnv.containerEnv
 
     override val desktops =
         listOf(
@@ -24,13 +27,22 @@ object Arch : Distro {
             ArchFoot.spec
         )
 
+    private val mirrors =
+        listOf(
+            "http://mirror.archlinuxarm.org",
+            "http://tw.mirror.archlinuxarm.org",
+            "http://de.mirror.archlinuxarm.org",
+            "http://fl.us.mirror.archlinuxarm.org",
+            "http://nj.us.mirror.archlinuxarm.org"
+        )
+
     val pacmanPrep =
         """
         rm -f /var/lib/pacman/db.lck
         best=""
         best_t=999
-        for m in http://mirror.archlinuxarm.org http://tw.mirror.archlinuxarm.org http://de.mirror.archlinuxarm.org http://fl.us.mirror.archlinuxarm.org http://nj.us.mirror.archlinuxarm.org; do
-            t=${'$'}(curl -sL -o /dev/null -w "%{http_code} %{time_total}" --max-time 3 "${'$'}m/aarch64/core/core.db" 2>/dev/null)
+        for m in ${mirrors.joinToString(" ")}; do
+            t=$(curl -sL -o /dev/null -w "%{http_code} %{time_total}" --max-time 3 "${'$'}m/aarch64/core/core.db" 2>/dev/null)
             code=${'$'}{t%% *}
             sec=${'$'}{t#* }
             if [ "${'$'}code" = "200" ] && awk "BEGIN{exit !(${'$'}sec < ${'$'}best_t)}"; then
@@ -50,11 +62,12 @@ object Arch : Distro {
 
     override fun prepareRootfs(rootfsDir: File) {
         val lockFile = File(rootfsDir, "var/lib/pacman/db.lck")
-        if (lockFile.exists()) {
+        if (lockFile.exists())
             lockFile.delete()
-        }
+
         val pacmanConf = File(rootfsDir, "etc/pacman.conf")
         if (!pacmanConf.exists()) return
+
         var text = pacmanConf.readText()
         var changed = false
         if (text.contains("#DisableSandboxFilesystem")) {

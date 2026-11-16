@@ -1,7 +1,10 @@
 package dev.wayver.app.distro
 
 import android.content.Context
+import dev.wayver.app.utils.HttpDownloader
+import dev.wayver.app.utils.TarExtractor
 import java.io.File
+import java.io.InputStream
 
 data class PrepareContext(
     val context: Context,
@@ -22,21 +25,28 @@ interface Distro {
     val iconRes: Int
 
     val rootfsUrl: String
-    val rootfsStripComponents: Int
-        get() = 0
-    val markerRelPath: String
+
+    val relPath: String
     val shellPath: String
-    val pathEnv: String
-        get() = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+    // Per-distro environment ovverrides
     val extraEnv: Map<String, String>
         get() = emptyMap()
 
     /** Per-app environment overrides installed as `/usr/local/bin/<app>` wrapper shims. */
     val appEnvs: Map<String, Map<String, String>>
         get() = emptyMap()
+
     val desktops: List<DesktopSpec>
 
     fun desktopById(desktopId: String?): DesktopSpec = desktops.firstOrNull { it.id == desktopId } ?: desktops.first()
+
+    fun downloadRootfs(destFile: File, onProgress: (String) -> Unit): Boolean =
+        HttpDownloader.download(rootfsUrl, destFile, onProgress)
+
+    fun extractRootfs(stream: InputStream, rootfsDir: File) {
+        TarExtractor.extract(stream, rootfsDir)
+    }
 
     fun prepareRootfs(rootfsDir: File) {}
 }

@@ -269,9 +269,8 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
                         )
                     }
                     if (!rootfsManager.ensureContainerReady(containerConfig.id, activeDistro)) {
-                        viewModel.failBoot(
-                            "Failed to prepare ${activeDistro.name} rootfs. Download the image first."
-                        )
+                        viewModel.failBoot("Failed to prepare ${activeDistro.name} rootfs. Download the image first.")
+
                         return@launch
                     }
 

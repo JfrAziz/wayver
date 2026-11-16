@@ -26,9 +26,9 @@ object TarExtractor {
         val linkTarget: String
     )
 
-    fun extract(rawStream: InputStream, destRoot: File, stripComponents: Int = 0) {
+    fun extract(rawStream: InputStream, destRoot: File) {
         openTarStream(rawStream).use { stream ->
-            extractTar(stream, destRoot, stripComponents)
+            extractTar(stream, destRoot)
         }
     }
 
@@ -57,14 +57,7 @@ object TarExtractor {
         }
     }
 
-    private fun stripPathComponents(rawPath: String, stripComponents: Int): String {
-        val cleaned = rawPath.trimStart('/', '.').trimStart('/')
-        if (stripComponents <= 0 || cleaned.isEmpty()) return cleaned
-        val parts = cleaned.split('/').filter { it.isNotEmpty() }
-        return if (parts.size <= stripComponents) "" else parts.drop(stripComponents).joinToString("/")
-    }
-
-    private fun extractTar(input: InputStream, destRoot: File, stripComponents: Int) {
+    private fun extractTar(input: InputStream, destRoot: File) {
         val headerBuf = ByteArray(TAR_BLOCK_SIZE)
         var longName: String? = null
         var longLink: String? = null
@@ -94,14 +87,14 @@ object TarExtractor {
                 continue
             }
 
-            val cleanPath = stripPathComponents(header.rawPath, stripComponents)
+            val cleanPath = header.rawPath.trimStart('/', '.').trimStart('/')
             if (cleanPath.isEmpty()) {
                 skipBytes(input, header.size)
                 skipPadding(input, header.size)
                 continue
             }
 
-            extractTarEntry(input, File(destRoot, cleanPath), destRoot, header, dirModes, stripComponents)
+            extractTarEntry(input, File(destRoot, cleanPath), destRoot, header, dirModes)
         }
 
         // Apply directory permissions bottom-up after all files are extracted; setting a restrictive
@@ -137,8 +130,7 @@ object TarExtractor {
         outFile: File,
         destRoot: File,
         header: TarHeader,
-        dirModes: MutableList<Pair<File, Int>>,
-        stripComponents: Int
+        dirModes: MutableList<Pair<File, Int>>
     ) {
         when (header.typeFlag) {
             '5' -> {
@@ -155,12 +147,9 @@ object TarExtractor {
 
             '1' -> {
                 outFile.parentFile?.mkdirs()
-                val targetPath = stripPathComponents(header.linkTarget, stripComponents)
-                if (targetPath.isNotEmpty()) {
-                    val targetFile = File(destRoot, targetPath)
-                    if (outFile.exists()) outFile.delete()
-                    runCatching { Os.link(targetFile.absolutePath, outFile.absolutePath) }
-                }
+                val targetFile = File(destRoot, header.linkTarget.trimStart('/', '.').trimStart('/'))
+                if (outFile.exists()) outFile.delete()
+                runCatching { Os.link(targetFile.absolutePath, outFile.absolutePath) }
             }
 
             // Skip device nodes and FIFOs: unprivileged mknod fails on Android, and PRoot binds /dev.

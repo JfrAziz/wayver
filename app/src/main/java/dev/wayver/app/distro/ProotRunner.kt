@@ -107,7 +107,7 @@ class ProotRunner(
                 put("SHELL", distro.shellPath)
                 put("TERM", "xterm-256color")
                 put("LANG", "C.UTF-8")
-                put("PATH", distro.pathEnv)
+                put("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
                 putAll(envConfig.resolve(distro.extraEnv, distro.appEnvs))
             }
         }

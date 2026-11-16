@@ -9,10 +9,12 @@ object Alpine : Distro {
     override val iconRes = R.drawable.ic_distro_alpine
     override val rootfsUrl =
         "https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/aarch64/alpine-minirootfs-3.23.8-aarch64.tar.gz"
-    override val markerRelPath = "etc/alpine-release"
+
+    override val relPath = "etc/alpine-release"
     override val shellPath = "/bin/sh"
-    override val extraEnv = AlpineEnv.containerEnv
+
     override val appEnvs = AlpineEnv.appEnvs
+    override val extraEnv = AlpineEnv.containerEnv
 
     override val desktops =
         listOf(
