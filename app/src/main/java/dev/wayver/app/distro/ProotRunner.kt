@@ -89,7 +89,29 @@ class ProotRunner(
         val rootfsDir = rootfsManager.rootfsDir(containerId)
         procSysBindings.prepare()
         val l2sDir = File(rootfsManager.containerDir(containerId), "proot-l2s").apply { mkdirs() }
-        val args = buildProotArgs(prootBin, rootfsDir, l2sDir, distro, cmd)
+        val args = buildList {
+            addAll(
+                listOf(
+                    prootBin.absolutePath,
+                    "-r", rootfsDir.absolutePath,
+                    // Fake root (UID/GID 0) so package managers and rootfs setup work unprivileged.
+                    "-0",
+                    // Android app_data_file blocks hardlinks (EPERM); convert link(2) to symlinks for dpkg/apt.
+                    "--link2symlink",
+                    "-w", "/root",
+                    // Bind Android kernel interfaces and per-container IPC/Wayland directories.
+                    "-b", "/dev",
+                    "-b", "${shmDir.absolutePath}:/dev/shm",
+                    "-b", "${l2sDir.absolutePath}:${l2sDir.absolutePath}"
+                )
+            )
+            addAll(procSysBindings.bindArgs())
+            add("-b")
+            add("${xdgRuntimeDir.absolutePath}:/tmp/xdg-runtime")
+            add(distro.shellPath)
+            add("-c")
+            add(cmd)
+        }
         return ProcessBuilder(args).apply {
             redirectErrorStream(true)
             environment().apply {
@@ -117,36 +139,6 @@ class ProotRunner(
         procSysBindings.stopSampler()
         activeProcess?.destroyForcibly()
         activeProcess = null
-    }
-
-    private fun buildProotArgs(
-        prootBin: File,
-        rootfsDir: File,
-        l2sDir: File,
-        distro: Distro,
-        cmd: String
-    ): List<String> = buildList {
-        addAll(
-            listOf(
-                prootBin.absolutePath,
-                "-r", rootfsDir.absolutePath,
-                // Fake root (UID/GID 0) so package managers and rootfs setup work unprivileged.
-                "-0",
-                // Android app_data_file blocks hardlinks (EPERM); convert link(2) to symlinks for dpkg/apt.
-                "--link2symlink",
-                "-w", "/root",
-                // Bind Android kernel interfaces and per-container IPC/Wayland directories.
-                "-b", "/dev",
-                "-b", "${shmDir.absolutePath}:/dev/shm",
-                "-b", "${l2sDir.absolutePath}:${l2sDir.absolutePath}"
-            )
-        )
-        addAll(procSysBindings.bindArgs())
-        add("-b")
-        add("${xdgRuntimeDir.absolutePath}:/tmp/xdg-runtime")
-        add(distro.shellPath)
-        add("-c")
-        add(cmd)
     }
 
     private fun streamProcessOutput(proc: Process, distro: Distro) {
