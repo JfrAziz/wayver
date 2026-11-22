@@ -1,37 +1,29 @@
 package dev.wayver.app.container
 
 import android.content.Context
-import dev.wayver.app.core.AppPrefs
 import java.util.UUID
 import org.json.JSONArray
 import org.json.JSONObject
 
 class ContainerStore(context: Context) {
     private val prefs = context.getSharedPreferences("wayver_containers", Context.MODE_PRIVATE)
-    private val appPrefs = AppPrefs(context)
 
     fun getAll(): List<ContainerConfig> {
         val raw = prefs.getString(KEY_CONTAINERS, null)
-        if (raw.isNullOrBlank()) {
-            val defaults = listOf(createDefaultContainer())
-            saveAll(defaults)
-            return defaults
-        }
+        if (raw.isNullOrBlank()) return emptyList()
         return runCatching {
             val arr = JSONArray(raw)
             val list = ArrayList<ContainerConfig>(arr.length())
             for (i in 0 until arr.length()) {
                 list.add(fromJson(arr.getJSONObject(i)))
             }
-            if (list.isEmpty()) listOf(createDefaultContainer()) else list
-        }.getOrElse {
-            listOf(createDefaultContainer())
-        }
+            list
+        }.getOrElse { emptyList() }
     }
 
-    fun getById(id: String?): ContainerConfig {
+    fun getById(id: String?): ContainerConfig? {
         val all = getAll()
-        return all.firstOrNull { it.id == id } ?: all.first()
+        return all.firstOrNull { it.id == id } ?: all.firstOrNull()
     }
 
     fun upsert(container: ContainerConfig) {
@@ -46,10 +38,7 @@ class ContainerStore(context: Context) {
     }
 
     fun delete(id: String) {
-        val list = getAll().filterNot { it.id == id }
-        if (list.isNotEmpty()) {
-            saveAll(list)
-        }
+        saveAll(getAll().filterNot { it.id == id })
     }
 
     fun newId(): String = UUID.randomUUID().toString().take(8)
@@ -59,14 +48,6 @@ class ContainerStore(context: Context) {
         containers.forEach { arr.put(toJson(it)) }
         prefs.edit().putString(KEY_CONTAINERS, arr.toString()).apply()
     }
-
-    private fun createDefaultContainer(): ContainerConfig = ContainerConfig(
-        id = "default-alpine-labwc",
-        name = "Alpine + LabWC",
-        distroId = appPrefs.activeDistroId,
-        desktopId = "labwc",
-        resolutionScale = 1.0f
-    )
 
     private fun toJson(c: ContainerConfig): JSONObject = JSONObject().apply {
         put("id", c.id)
@@ -151,7 +132,7 @@ class ContainerStore(context: Context) {
             id = o.optString("id", newId()),
             name = o.optString("name", "Linux Container"),
             distroId = o.optString("distroId", "alpine"),
-            desktopId = o.optString("desktopId", "labwc"),
+            desktopId = o.optString("desktopId", "sway"),
             resolutionScale = resolutionScale,
             env = EnvConfig(disabledPresets = disabledPresets, presetEdits = presetEdits, overrides = overrides)
         )

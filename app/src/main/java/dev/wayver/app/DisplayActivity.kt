@@ -88,7 +88,7 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
         val containerId = intent.getStringExtra(EXTRA_CONTAINER_ID) ?: intent.data?.lastPathSegment
 
-        containerConfig = ContainerStore(this).getById(containerId)
+        containerConfig = ContainerStore(this).getById(containerId) ?: return finish()
 
         activeDistro = DistroRegistry.byId(containerConfig.distroId)
 

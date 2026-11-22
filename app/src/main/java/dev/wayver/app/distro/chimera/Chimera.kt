@@ -19,8 +19,8 @@ object Chimera : Distro {
 
     override val desktops =
         listOf(
-            ChimeraLabwc.spec,
             ChimeraSway.spec,
+            ChimeraLabwc.spec,
             ChimeraXfce.spec,
             ChimeraFoot.spec
         )

@@ -19,8 +19,8 @@ object OpenSuse : Distro {
 
     override val desktops =
         listOf(
-            OpenSuseLabwc.spec,
             OpenSuseSway.spec,
+            OpenSuseLabwc.spec,
             OpenSuseXfce.spec,
             OpenSuseLxqt.spec,
             OpenSuseFoot.spec

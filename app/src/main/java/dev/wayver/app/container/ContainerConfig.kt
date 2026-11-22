@@ -60,7 +60,7 @@ data class ContainerConfig(
     val id: String,
     val name: String,
     val distroId: String,
-    val desktopId: String = "labwc",
+    val desktopId: String = "sway",
     val env: EnvConfig = EnvConfig(),
     val resolutionScale: Float = 1.0f
 )

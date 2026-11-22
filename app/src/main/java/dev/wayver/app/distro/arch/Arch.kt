@@ -19,11 +19,11 @@ object Arch : Distro {
 
     override val desktops =
         listOf(
-            ArchLabwc.spec,
             ArchSway.spec,
+            ArchLabwc.spec,
+            ArchRiver.spec,
             ArchXfce.spec,
             ArchLxqt.spec,
-            ArchRiver.spec,
             ArchFoot.spec
         )
 

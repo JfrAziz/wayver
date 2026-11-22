@@ -19,7 +19,7 @@ object DistroRegistry {
     val openSuse: Distro = OpenSuse
     val chimera: Distro = Chimera
 
-    val all: List<Distro> = listOf(alpine, debian, ubuntu, arch, voidLinux, kali, openSuse, chimera)
+    val all: List<Distro> = listOf(alpine, arch, voidLinux, debian, ubuntu, openSuse, kali, chimera)
 
     fun byId(id: String): Distro = all.firstOrNull { it.id == id } ?: alpine
 }

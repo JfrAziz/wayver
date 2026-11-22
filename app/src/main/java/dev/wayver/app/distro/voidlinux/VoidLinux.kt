@@ -19,11 +19,11 @@ object VoidLinux : Distro {
 
     override val desktops =
         listOf(
-            VoidLabwc.spec,
             VoidSway.spec,
+            VoidLabwc.spec,
+            VoidRiver.spec,
             VoidXfce.spec,
             VoidLxqt.spec,
-            VoidRiver.spec,
             VoidFoot.spec
         )
 }

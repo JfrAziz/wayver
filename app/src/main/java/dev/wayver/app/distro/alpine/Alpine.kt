@@ -18,11 +18,11 @@ object Alpine : Distro {
 
     override val desktops =
         listOf(
-            AlpineLabwc.spec,
             AlpineSway.spec,
+            AlpineLabwc.spec,
+            AlpineRiver.spec,
             AlpineXfce.spec,
             AlpineLxqt.spec,
-            AlpineRiver.spec,
             AlpineFoot.spec
         )
 }
