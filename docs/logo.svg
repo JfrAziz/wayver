@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="128" height="128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="108" y2="108" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1E1E2E"/>
+      <stop offset="100%" stop-color="#181825"/>
+    </linearGradient>
+    <linearGradient id="w" x1="26.75" y1="41.25" x2="81.75" y2="81.75" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#89B4FA"/>
+      <stop offset="100%" stop-color="#94E2D5"/>
+    </linearGradient>
+  </defs>
+  <rect width="108" height="108" rx="24" fill="url(#bg)"/>
+  <g fill="#313244">
+    <rect x="26.75" y="26.75" width="11.5" height="11.5" rx="3"/>
+    <rect x="41.25" y="26.75" width="11.5" height="11.5" rx="3"/>
+    <rect x="55.75" y="26.75" width="11.5" height="11.5" rx="3"/>
+    <rect x="70.25" y="26.75" width="11.5" height="11.5" rx="3"/>
+    <rect x="41.25" y="41.25" width="11.5" height="11.5" rx="3"/>
+    <rect x="55.75" y="41.25" width="11.5" height="11.5" rx="3"/>
+    <rect x="26.75" y="70.25" width="11.5" height="11.5" rx="3"/>
+    <rect x="70.25" y="70.25" width="11.5" height="11.5" rx="3"/>
+  </g>
+  <g fill="url(#w)">
+    <rect x="26.75" y="41.25" width="11.5" height="11.5" rx="3"/>
+    <rect x="70.25" y="41.25" width="11.5" height="11.5" rx="3"/>
+    <rect x="26.75" y="55.75" width="11.5" height="11.5" rx="3"/>
+    <rect x="70.25" y="55.75" width="11.5" height="11.5" rx="3"/>
+    <rect x="41.25" y="70.25" width="11.5" height="11.5" rx="3"/>
+    <rect x="55.75" y="70.25" width="11.5" height="11.5" rx="3"/>
+  </g>
+  <g fill="#F9E2AF">
+    <rect x="41.25" y="55.75" width="11.5" height="11.5" rx="3"/>
+    <rect x="55.75" y="55.75" width="11.5" height="11.5" rx="3"/>
+  </g>
+</svg>

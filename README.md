@@ -1,12 +1,79 @@
-# Wayver
+<p align="center">
+  <img src="docs/logo.svg" width="96" height="96" alt="Wayver Logo" />
+</p>
 
-Native Wayland + Vulkan + PRoot Linux container launcher for Android (`arm64-v8a`).
+<h1 align="center">Wayver</h1>
 
-Wayver embeds an in-process Rust Wayland compositor and Vulkan presenter (`libwayver.so`) backed by an Android `SurfaceView`, running rootless Linux distributions inside PRoot with **no VNC, no X11, and no root required**.
+<p align="center">
+  <strong>Run real Linux desktops on your Android phone or tablet — no root, no VNC</strong>
+</p>
+
+Wayver runs Linux distributions inside an isolated container and renders their Wayland desktops directly onto your Android screen with native touch, keyboard, audio, and two-way clipboard sync.
+
+> [!NOTE]
+> **Early Development**
+> Wayver is usable today for terminal work, coding tools, and lightweight desktops, but it is still in active development:
+>
+> - **Runs as simulated root (`proot -0`)**: Containers run as fake `root` inside the sandbox for package-manager compatibility; unprivileged multi-user isolation is not implemented yet.
+> - **Mostly stock distro configs**: Desktops currently use lightweight, minimal configurations rather than heavily customized themes.
+> - **Software rendering only**: Graphics currently render on the CPU (`pixman` / `llvmpipe`); hardware-accelerated guest GPU support is planned for a future release.
 
 ---
 
-## Architecture
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/01-tablet-launcher.jpg" width="49%" alt="Tablet Launcher" />
+  <img src="docs/screenshots/02-tablet-sway-btop.jpg" width="49%" alt="Arch Linux ARM + Sway" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/03-tablet-sway-nvim.jpg" width="98.5%" alt="Neovim, Bun, and OpenCode in Wayver" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/04-phone-launcher.jpg" width="32%" alt="Phone Launcher" />
+  <img src="docs/screenshots/05-phone-setup.jpg" width="32%" alt="Container Setup" />
+  <img src="docs/screenshots/06-phone-sway.jpg" width="32%" alt="Alpine + Sway on Phone" />
+</p>
+
+---
+
+## What You Can Do
+
+- **Pick from 8 Linux distros** — download once and reuse the image across multiple containers, or import your own `.tar`, `.tar.gz`, or `.tar.xz` rootfs archive.
+- **Run full desktops or just a terminal** — switch between tiling WMs (`Sway`, `River`), classic desktops (`XFCE`, `LXQt`, `LabWC`), mobile shell (`Phosh`), or standalone `Foot Terminal` without losing your files.
+- **Copy & paste seamlessly** — two-way clipboard sync between Android and Linux apps (both standalone terminals and nested desktops).
+- **Sound out of the box** — Linux audio streams directly to Android speakers/headphones.
+- **Multitask easily** — run multiple containers, switch via the Quick Menu pill on the right edge of the screen, or jump back from the Android notification.
+- **Fit any screen** — choose `Native (1x)` up to `Native @ 2x` (or `0.5x` / `0.75x`) for comfortable text size on phones and tablets.
+
+---
+
+## Supported Distros & Desktops
+
+| Distro                  | Available Desktops                                                            |
+| :---------------------- | :---------------------------------------------------------------------------- |
+| **Alpine 3.23**         | `LabWC`, `Sway`, `XFCE (Wayland)`, `LXQt (Wayland)`, `River`, `Foot Terminal` |
+| **Arch Linux ARM**      | `LabWC`, `Sway`, `XFCE (Wayland)`, `LXQt (Wayland)`, `River`, `Foot Terminal` |
+| **Void Linux**          | `LabWC`, `Sway`, `XFCE (Wayland)`, `LXQt (Wayland)`, `River`, `Foot Terminal` |
+| **openSUSE Tumbleweed** | `LabWC`, `Sway`, `XFCE (Wayland)`, `LXQt (Wayland)`, `Foot Terminal`          |
+| **Chimera Linux**       | `LabWC`, `Sway`, `XFCE (Wayland)`, `Foot Terminal`                            |
+| **Debian Trixie**       | `LabWC`, `XFCE (Wayland)`, `Phosh (Mobile)`, `Foot Terminal`                  |
+| **Kali Linux**          | `LabWC`, `XFCE (Wayland)`, `Foot Terminal`                                    |
+| **Ubuntu Noble**        | `LabWC`, `Foot Terminal`                                                      |
+
+---
+
+## Quick Start
+
+1. **Install the APK** from [Releases](../../releases) (`arm64-v8a`, Android 8.0+ / API 26+).
+2. **Download a Distro Image** from the home screen (or tap **+ New** to create a container).
+3. **Choose a Desktop** (e.g. `Sway`, `LabWC`, `XFCE`, or `Foot Terminal`) and tap **Launch**.
+4. **Wait for First-Time Setup** — Wayver extracts the rootfs and installs your desktop packages automatically.
+5. **Use the Right-Edge Pill** during a session to toggle the keyboard, switch containers, view logs, or restart/stop.
+
+---
+
+### Architecture
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -17,61 +84,21 @@ Wayver embeds an in-process Rust Wayland compositor and Vulkan presenter (`libwa
 ├─────────────────────────────────────────────────────────────────────────┤
 │ Rust Native Engine (libwayver.so via JNI)                               │
 │  ├─ wl_server    ── Wayland compositor (wl_shm, xdg_shell, wl_seat...)  │
+│  ├─ clipboard    ── Two-way Android <-> Wayland & nested DE sync        │
 │  ├─ vk_presenter ── Vulkan swapchain (MAILBOX, vkCmdCopyImage 1:1)      │
 │  └─ audio        ── PulseAudio native socket server -> Android AAudio    │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ PRoot Guest Containers (files/containers/<id>/rootfs)                   │
-│  └─ Sway / LabWC / Foot ── connects to wayland-0 & pulse-native         │
+│  └─ LabWC / Sway / XFCE / LXQt / River / Phosh / Foot -> wayland-0      │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-1. **In-Process Wayland Compositor**: Implements `wl_compositor`, `xdg_shell`, `wl_shm`, `wl_seat`, `wl_output`, `wl_subcompositor`, and `wl_data_device_manager` in Rust (`wl_server`).
-2. **Vulkan Presentation**: Renders client `wl_shm` buffers directly onto the Android `SurfaceView` Vulkan swapchain (`vk_presenter`), preferring `MAILBOX` present mode and `vkCmdCopyImage` for 1:1 frames.
-3. **Native Audio**: Exposes a PulseAudio native socket inside each container's `XDG_RUNTIME_DIR` and streams PCM audio directly to Android `AAudio` (`audio/pulse_audio.rs`, `audio/aaudio_sink.rs`).
-
----
-
-## Features
-
-- **Multi-Container Lifecycle**:
-    - Create, edit, launch, switch, stop, and delete (with confirmation dialog) multiple isolated Linux containers.
-    - Each active container opens in its own Android Recents task labeled with the container name and maintains a persistent foreground notification with **Open** and **Kill** actions (`ContainerNotificationService`).
-- **Per-Distro-Desktop Config Isolation**:
-    - `XDG_CONFIG_HOME=/root/.config` keeps user app configs (`nvim`, `btop`, `opencode`, etc.) shared across desktops.
-    - Desktop-specific configs live in separate directories (`/root/.config/sway/`, `/root/.config/labwc/`, `/root/.config/foot/`) so switching desktops in the same container never overwrites another desktop's customized dotfiles.
-- **Supported Distributions & Desktops**:
-    - **Alpine 3.23**: `Sway`, `LabWC Desktop`, `Foot Terminal`
-    - **Arch Linux ARM**: `Sway`, `LabWC Desktop`, `Foot Terminal`
-    - **Debian Trixie**: `LabWC Desktop`, `Foot Terminal`
-    - **Ubuntu Noble**: `LabWC Desktop`, `Foot Terminal`
-- **Reusable Distro Images**: Download once (or redownload / import `.tar`, `.tar.gz`, `.tar.xz` rootfs archives) and reuse across any number of containers.
-- **Per-Distro App Env Presets**: Built-in `AppEnvPresets` and editable per-container `EnvConfig` overrides.
-- **Display & Input**:
-    - Resolution presets (`Native`, `Native @ 0.75x`, `Native @ 0.5x`, `1080p`, `720p`, `WXGA`, or custom `WxH`) with live rotation/resize handling on `Native` presets.
-    - Pointer/touch and hardware/soft-keyboard forwarding
-- **Jetpack Compose UI**:
-    - Catppuccin Mocha (Dark), Catppuccin Latte (Light), and Auto system theme modes.
-    - Responsive 1–5 column adaptive grid for containers and distro images.
-    - Center-right vertical **Quick Menu** pill (keyboard toggle + menu) opening the tabbed Quick Menu sheet (`Active`, `Switch`, `Logs`, `Device`) during container sessions.
-
----
-
-## Desktop Environments
-
-| Desktop                         | Included Tools & Styling                                              | Highlights                                                                                                                                                                        |
-| :------------------------------ | :-------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Sway** (Alpine, Arch)         | `sway`, `waybar`, `fuzzel`, `foot`, `autotiling`, `pcmanfm`, `swaybg` | Tiling WM with Catppuccin-styled top Waybar, Fuzzel app launcher (`Alt+Space`), and isolated `/root/.config/sway/` configs                                                        |
-| **LabWC** (All distros)         | `labwc`, `waybar`, `foot`, `pcmanfm`, `swaybg`                        | Floating stacking WM with macOS-style edge-to-edge top Waybar, minimal right-click menu (`Terminal`, `File Manager`, `Open Windows`), and isolated `/root/.config/labwc/` configs |
-| **Foot Terminal** (All distros) | `foot`                                                                | Fast, lightweight standalone Wayland terminal session (`/root/.config/foot/foot.ini`)                                                                                             |
-
----
-
-## Project Structure
+### Project Structure
 
 ```text
 app/src/main/
 ├── assets/
-│   ├── distros/{alpine,arch,debian,ubuntu}/   # Isolated per-DE dotfiles (sway/, labwc/, foot/)
+│   ├── distros/{alpine,arch,chimera,debian,kali,opensuse,ubuntu,void}/  # Isolated per-DE configs
 │   └── wallpaper.jpg                          # Default desktop wallpaper
 ├── java/dev/wayver/app/
 │   ├── container/                             # ContainerConfig, ContainerStore, ContainerManager, EnvConfig
@@ -79,19 +106,18 @@ app/src/main/
 │   ├── distro/                                # Distro specs, RootfsManager, ProotRunner, ProcSysBindings
 │   ├── driver/                                # DriverManager (.zip ICD importer)
 │   ├── input/                                 # KeyMapper (Android KeyEvent -> Linux evdev)
-│   ├── ui/                                    # Compose Theme, LauncherScreen, SetupOverlay, QuickMenuOverlay
+│   ├── ui/                                    # Compose Theme, Launcher, Display, Setup & Quick Menu
 │   └── utils/                                 # AssetCopy, ContainerLogger, HttpDownloader, TarExtractor
 ├── jniLibs/arm64-v8a/                         # libproot.so, libproot-loader.so, libwayland-server.so, libffi.so
 ├── res/                                       # Adaptive launcher icon & distro vector icons
 └── rust/src/                                  # Rust native library (libwayver.so)
     ├── audio/                                 # pulse_audio.rs, aaudio_sink.rs
+    ├── clipboard/                             # mod.rs, server.rs, bridge.rs
     ├── vk_presenter/                          # Vulkan context, commands, swapchain presenter
     └── wl_server/                             # Wayland protocols, shm, state, present_worker
 ```
 
----
-
-## Build & Tooling
+### Build & Tooling
 
 Requirements:
 
