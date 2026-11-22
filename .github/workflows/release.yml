@@ -56,6 +56,11 @@ jobs:
             VERSION_NAME="${GITHUB_REF_NAME#v}"
           fi
           VERSION_CODE=$(git rev-list --count HEAD)
+          PROP_VERSION=$(grep -E '^versionName=' gradle.properties | cut -d= -f2-)
+          if [ "$PROP_VERSION" != "$VERSION_NAME" ]; then
+            echo "gradle.properties versionName ($PROP_VERSION) does not match release version ($VERSION_NAME)" >&2
+            exit 1
+          fi
           echo "name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
           echo "code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
 
@@ -80,6 +85,8 @@ jobs:
             -PversionCode="${{ steps.version.outputs.code }}"
           cp app/build/outputs/apk/release/app-release.apk \
             "wayver-v${{ steps.version.outputs.name }}-arm64-v8a.apk"
+          sha256sum "wayver-v${{ steps.version.outputs.name }}-arm64-v8a.apk" > \
+            "wayver-v${{ steps.version.outputs.name }}-arm64-v8a.apk.sha256"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -87,4 +94,6 @@ jobs:
           tag_name: v${{ steps.version.outputs.name }}
           name: Wayver v${{ steps.version.outputs.name }}
           generate_release_notes: true
-          files: wayver-v${{ steps.version.outputs.name }}-arm64-v8a.apk
+          files: |
+            wayver-v${{ steps.version.outputs.name }}-arm64-v8a.apk
+            wayver-v${{ steps.version.outputs.name }}-arm64-v8a.apk.sha256

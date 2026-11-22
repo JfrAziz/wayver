@@ -16,8 +16,16 @@ android {
         applicationId = "dev.wayver.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
-        versionName = (project.findProperty("versionName") as String?) ?: "0.1.0"
+        val resolvedVersionName = property("versionName") as String
+        val semverCode = resolvedVersionName.split(".")
+            .mapNotNull { it.toIntOrNull() }
+            .let { parts ->
+                parts.getOrElse(0) { 0 } * 10000 +
+                    parts.getOrElse(1) { 0 } * 100 +
+                    parts.getOrElse(2) { 0 }
+            }
+        versionCode = (findProperty("versionCode") as String?)?.toIntOrNull() ?: semverCode
+        versionName = resolvedVersionName
 
         ndk {
             abiFilters += listOf("arm64-v8a")
