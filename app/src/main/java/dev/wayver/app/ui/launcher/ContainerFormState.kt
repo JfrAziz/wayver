@@ -8,7 +8,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import dev.wayver.app.container.ContainerConfig
 import dev.wayver.app.container.EnvConfig
-import dev.wayver.app.container.ResolutionPreset
 import dev.wayver.app.distro.DesktopSpec
 import dev.wayver.app.distro.Distro
 import dev.wayver.app.distro.DistroRegistry
@@ -26,7 +25,7 @@ class ContainerFormState(private val existing: ContainerConfig?) {
         selectedDistro.desktops.firstOrNull { it.id == existing?.desktopId }?.id
             ?: selectedDistro.desktops.first().id
     )
-    var selectedPreset by mutableStateOf(existing?.resolution ?: ResolutionPreset.NATIVE)
+    var resolutionScale by mutableStateOf(existing?.resolutionScale ?: 1.0f)
 
     var disabledPresets by mutableStateOf(existing?.env?.disabledPresets ?: emptySet())
     var presetEdits by mutableStateOf(existing?.env?.presetEdits ?: emptyMap())
@@ -52,7 +51,7 @@ class ContainerFormState(private val existing: ContainerConfig?) {
         name = name.trim().ifEmpty { defaultName },
         distroId = selectedDistro.id,
         desktopId = selectedDesktopId,
-        resolution = selectedPreset,
+        resolutionScale = resolutionScale,
         env =
         EnvConfig(
             disabledPresets = disabledPresets,

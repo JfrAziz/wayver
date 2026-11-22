@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.wayver.app.container.ContainerConfig
+import dev.wayver.app.container.ScreenScale
 import dev.wayver.app.distro.Distro
 import dev.wayver.app.ui.AppColors
 import dev.wayver.app.ui.components.StatusBadge
@@ -105,7 +106,7 @@ fun ContainerCard(container: ContainerConfig, distro: Distro, status: ContainerS
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = container.resolution.label,
+                    text = ScreenScale.formatLabel(container.resolutionScale),
                     color = AppColors.textMuted,
                     fontSize = 10.sp,
                     maxLines = 1,

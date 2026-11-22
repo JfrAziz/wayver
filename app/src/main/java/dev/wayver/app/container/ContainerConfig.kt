@@ -1,27 +1,35 @@
 package dev.wayver.app.container
 
+import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
-enum class ResolutionPreset(val id: String, val label: String, val scale: Float) {
-    NATIVE("native", "Native (1x)", 1.0f),
-    NATIVE_0_5("native_0_5", "Native @ 0.5x", 0.5f),
-    NATIVE_0_75("native_0_75", "Native @ 0.75x", 0.75f),
-    NATIVE_1_25("native_1_25", "Native @ 1.25x", 1.25f),
-    NATIVE_1_5("native_1_5", "Native @ 1.50x", 1.5f),
-    NATIVE_1_75("native_1_75", "Native @ 1.75x", 1.75f),
-    NATIVE_2("native_2", "Native @ 2x", 2.0f)
-    ;
+object ScreenScale {
+    const val MIN = 0.5f
+    const val MAX = 2.0f
+    const val STEP = 0.05f
+    const val STEPS = 29
 
-    fun resolve(nativeW: Int, nativeH: Int): Pair<Int, Int> {
-        if (nativeW <= 0 || nativeH <= 0) return 0 to 0
-        // Divide native resolution by UI scale and round to even dimensions for swapchain alignment.
-        val w = (((nativeW / scale).roundToInt() / 2) * 2).coerceIn(320, 4096)
-        val h = (((nativeH / scale).roundToInt() / 2) * 2).coerceIn(240, 4096)
-        return w to h
+    fun clamp(scale: Float): Float {
+        val snapped = ((scale / STEP).roundToInt() * STEP)
+        return snapped.coerceIn(MIN, MAX)
     }
 
-    companion object {
-        fun fromId(id: String?): ResolutionPreset = entries.firstOrNull { it.id == id } ?: NATIVE
+    fun isNative(scale: Float): Boolean = abs(scale - 1.0f) < 0.01f
+
+    fun formatLabel(scale: Float): String = if (isNative(scale)) {
+        "Native (1.00x)"
+    } else {
+        "Native @ ${String.format(Locale.US, "%.2f", scale)}x"
+    }
+
+    fun resolve(nativeW: Int, nativeH: Int, scale: Float): Pair<Int, Int> {
+        if (nativeW <= 0 || nativeH <= 0) return 0 to 0
+        val s = clamp(scale)
+        // Divide native resolution by UI scale and round to even dimensions for swapchain alignment.
+        val w = (((nativeW / s).roundToInt() / 2) * 2).coerceIn(320, 4096)
+        val h = (((nativeH / s).roundToInt() / 2) * 2).coerceIn(240, 4096)
+        return w to h
     }
 }
 
@@ -54,5 +62,5 @@ data class ContainerConfig(
     val distroId: String,
     val desktopId: String = "labwc",
     val env: EnvConfig = EnvConfig(),
-    val resolution: ResolutionPreset = ResolutionPreset.NATIVE
+    val resolutionScale: Float = 1.0f
 )

@@ -18,6 +18,8 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -34,7 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.wayver.app.container.ContainerConfig
-import dev.wayver.app.container.ResolutionPreset
+import dev.wayver.app.container.ScreenScale
 import dev.wayver.app.ui.AppColors
 import dev.wayver.app.ui.components.FieldLabel
 import dev.wayver.app.ui.components.WayverChipGroup
@@ -91,13 +93,29 @@ fun ContainerEditorDialog(existing: ContainerConfig?) {
             label = { it.name }
         )
 
-        FieldLabel("Screen Scale")
-        WayverChipGroup(
-            items = ResolutionPreset.entries,
-            selected = { form.selectedPreset == it },
-            onSelect = { form.selectedPreset = it },
-            label = { it.label },
-            fontSize = 11.sp
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            FieldLabel("Screen Scale")
+            Text(
+                text = ScreenScale.formatLabel(form.resolutionScale),
+                color = AppColors.accent,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+        Slider(
+            value = form.resolutionScale,
+            onValueChange = { form.resolutionScale = ScreenScale.clamp(it) },
+            valueRange = ScreenScale.MIN..ScreenScale.MAX,
+            steps = ScreenScale.STEPS,
+            colors = SliderDefaults.colors(
+                thumbColor = AppColors.accent,
+                activeTrackColor = AppColors.accent,
+                inactiveTrackColor = AppColors.border
+            )
         )
 
         TextButton(onClick = { showAdvanced = !showAdvanced }) {

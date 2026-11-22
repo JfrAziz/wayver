@@ -32,7 +32,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import dev.wayver.app.container.ContainerConfig
 import dev.wayver.app.container.ContainerManager
 import dev.wayver.app.container.ContainerStore
-import dev.wayver.app.container.ResolutionPreset
+import dev.wayver.app.container.ScreenScale
 import dev.wayver.app.core.NativeBridge
 import dev.wayver.app.distro.Distro
 import dev.wayver.app.distro.DistroRegistry
@@ -141,9 +141,9 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
     @SuppressLint("ClickableViewAccessibility")
     private fun createSurfaceView(): SurfaceView {
         val (nativeW, nativeH) = nativeDisplaySize()
-        val resPreset = containerConfig.resolution
-        val isTrueNative = resPreset == ResolutionPreset.NATIVE
-        val (reqW, reqH) = resPreset.resolve(nativeW, nativeH)
+        val scale = containerConfig.resolutionScale
+        val isTrueNative = ScreenScale.isNative(scale)
+        val (reqW, reqH) = ScreenScale.resolve(nativeW, nativeH, scale)
         return SurfaceView(this).apply {
             isFocusable = true
             isFocusableInTouchMode = true
@@ -157,8 +157,9 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 val oldW = oldRight - oldLeft
                 val oldH = oldBottom - oldTop
                 if (newW <= 0 || newH <= 0 || (newW == oldW && newH == oldH)) return@addOnLayoutChangeListener
-                if (!isTrueNative) {
-                    val (targetW, targetH) = resPreset.resolve(newW, newH)
+                val currentScale = containerConfig.resolutionScale
+                if (!ScreenScale.isNative(currentScale)) {
+                    val (targetW, targetH) = ScreenScale.resolve(newW, newH, currentScale)
                     val frame = holder.surfaceFrame
                     if (targetW > 0 && targetH > 0 && (targetW != frame.width() || targetH != frame.height())) {
                         v.post { holder.setFixedSize(targetW, targetH) }
@@ -241,9 +242,25 @@ class DisplayActivity : AppCompatActivity(), SurfaceHolder.Callback {
             is DisplayEffect.SwitchContainer ->
                 startActivity(createIntent(this, effect.containerId))
 
+            is DisplayEffect.ApplyResolutionScale -> applyResolutionScale(effect.scale)
+
             DisplayEffect.StopAndExit -> {
                 openMainMenu()
                 ContainerManager.stopContainer(containerConfig.id)
+            }
+        }
+    }
+
+    private fun applyResolutionScale(scale: Float) {
+        containerConfig = containerConfig.copy(resolutionScale = scale)
+        if (ScreenScale.isNative(scale)) {
+            surfaceView.holder.setSizeFromLayout()
+        } else {
+            val baseW = surfaceView.width.takeIf { it > 0 } ?: nativeDisplaySize().first
+            val baseH = surfaceView.height.takeIf { it > 0 } ?: nativeDisplaySize().second
+            val (reqW, reqH) = ScreenScale.resolve(baseW, baseH, scale)
+            if (reqW > 0 && reqH > 0) {
+                surfaceView.holder.setFixedSize(reqW, reqH)
             }
         }
     }

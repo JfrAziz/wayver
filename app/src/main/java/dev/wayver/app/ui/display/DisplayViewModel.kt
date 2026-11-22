@@ -79,6 +79,7 @@ sealed interface DisplayAction {
     data object RestartSession : DisplayAction
     data object OpenMainMenu : DisplayAction
     data class SwitchContainer(val target: ContainerConfig) : DisplayAction
+    data class SetResolutionScale(val scale: Float) : DisplayAction
     data object StopContainer : DisplayAction
     data object ClearLogs : DisplayAction
 }
@@ -91,6 +92,7 @@ sealed interface DisplayEffect {
     data object RefreshNativeStatus : DisplayEffect
     data object OpenMainMenu : DisplayEffect
     data class SwitchContainer(val containerId: String) : DisplayEffect
+    data class ApplyResolutionScale(val scale: Float) : DisplayEffect
     data object StopAndExit : DisplayEffect
 }
 
@@ -175,6 +177,15 @@ class DisplayViewModel(application: Application) : AndroidViewModel(application)
             DisplayAction.OpenMainMenu -> _effects.trySend(DisplayEffect.OpenMainMenu)
             is DisplayAction.SwitchContainer ->
                 _effects.trySend(DisplayEffect.SwitchContainer(action.target.id))
+
+            is DisplayAction.SetResolutionScale -> {
+                val updated = _uiState.value.active.config.copy(resolutionScale = action.scale)
+                _uiState.update { it.copy(active = it.active.copy(config = updated)) }
+                viewModelScope.launch(Dispatchers.IO) {
+                    containerStore.upsert(updated)
+                }
+                _effects.trySend(DisplayEffect.ApplyResolutionScale(action.scale))
+            }
 
             DisplayAction.ClearLogs -> _logs.value = logRing.clear()
         }

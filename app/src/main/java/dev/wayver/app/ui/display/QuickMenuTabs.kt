@@ -26,9 +26,15 @@ import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,6 +45,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.wayver.app.BuildConfig
+import dev.wayver.app.container.ScreenScale
 import dev.wayver.app.ui.AppColors
 import dev.wayver.app.ui.components.FieldLabel
 import dev.wayver.app.ui.components.LogBuffer
@@ -87,7 +94,7 @@ internal fun OverviewTab(state: DisplayUiState, nativeStatus: String) {
                         fontSize = 12.sp
                     )
                     Text(
-                        text = container.resolution.label,
+                        text = ScreenScale.formatLabel(container.resolutionScale),
                         color = AppColors.textMuted,
                         fontSize = 11.sp
                     )
@@ -120,6 +127,50 @@ internal fun OverviewTab(state: DisplayUiState, nativeStatus: String) {
         }
 
         WayverCard(containerColor = AppColors.surfaceElevated) {
+            var draftScale by remember(container.resolutionScale) {
+                mutableFloatStateOf(container.resolutionScale)
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FieldLabel("SCREEN SCALE")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = ScreenScale.formatLabel(draftScale),
+                        color = AppColors.accent,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    if (!ScreenScale.isNative(draftScale)) {
+                        TextButton(
+                            onClick = {
+                                draftScale = 1.0f
+                                dispatch(DisplayAction.SetResolutionScale(1.0f))
+                            },
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                        ) {
+                            Text("1x", color = AppColors.textMuted, fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+            Slider(
+                value = draftScale,
+                onValueChange = { draftScale = ScreenScale.clamp(it) },
+                onValueChangeFinished = { dispatch(DisplayAction.SetResolutionScale(draftScale)) },
+                valueRange = ScreenScale.MIN..ScreenScale.MAX,
+                steps = ScreenScale.STEPS,
+                colors = SliderDefaults.colors(
+                    thumbColor = AppColors.accent,
+                    activeTrackColor = AppColors.accent,
+                    inactiveTrackColor = AppColors.border
+                )
+            )
+        }
+
+        WayverCard(containerColor = AppColors.surfaceElevated) {
             FieldLabel("DEVICE & DISPLAY")
             Spacer(modifier = Modifier.height(8.dp))
             InfoRow("Wayver", "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
@@ -128,7 +179,7 @@ internal fun OverviewTab(state: DisplayUiState, nativeStatus: String) {
                 "ABI / Android",
                 "${Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a"} • API ${Build.VERSION.SDK_INT}"
             )
-            InfoRow("Output", "${state.surfaceSize} • ${container.resolution.label}")
+            InfoRow("Output", "${state.surfaceSize} • ${ScreenScale.formatLabel(container.resolutionScale)}")
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = nativeStatus,

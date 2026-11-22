@@ -65,7 +65,7 @@ class ContainerStore(context: Context) {
         name = "Alpine + LabWC",
         distroId = appPrefs.activeDistroId,
         desktopId = "labwc",
-        resolution = ResolutionPreset.NATIVE
+        resolutionScale = 1.0f
     )
 
     private fun toJson(c: ContainerConfig): JSONObject = JSONObject().apply {
@@ -73,7 +73,7 @@ class ContainerStore(context: Context) {
         put("name", c.name)
         put("distroId", c.distroId)
         put("desktopId", c.desktopId)
-        put("resolutionPreset", c.resolution.id)
+        put("resolutionScale", c.resolutionScale.toDouble())
         put(
             "env",
             JSONObject().apply {
@@ -102,8 +102,7 @@ class ContainerStore(context: Context) {
     }
 
     private fun fromJson(o: JSONObject): ContainerConfig {
-        val resolution =
-            ResolutionPreset.fromId(o.optString("resolutionPreset", ResolutionPreset.NATIVE.id))
+        val resolutionScale = ScreenScale.clamp(o.optDouble("resolutionScale", 1.0).toFloat())
         val envObj = o.optJSONObject("env")
         val disabledPresets =
             buildSet {
@@ -153,7 +152,7 @@ class ContainerStore(context: Context) {
             name = o.optString("name", "Linux Container"),
             distroId = o.optString("distroId", "alpine"),
             desktopId = o.optString("desktopId", "labwc"),
-            resolution = resolution,
+            resolutionScale = resolutionScale,
             env = EnvConfig(disabledPresets = disabledPresets, presetEdits = presetEdits, overrides = overrides)
         )
     }
